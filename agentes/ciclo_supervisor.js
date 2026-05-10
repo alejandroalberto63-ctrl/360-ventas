@@ -233,6 +233,56 @@ async function ejecutarCiclo(triggerLeadId = null) {
       continue;
     }
 
+    // ─── VALIDACIONES HARD (bloquean envío sin depender del prompt) ─────────
+    const alertasCtx = lead.contexto?.alertas || [];
+    const tonoCli = lead.contexto?.tono_cliente;
+
+    // Hard 1: cliente molesto → BLOQUEO TOTAL + escalado
+    const esMolesto =
+      tonoCli === "molesto" ||
+      alertasCtx.some((a) => typeof a === "string" && a.includes("cliente_molesto"));
+    if (esMolesto) {
+      console.warn(`[HARD-BLOCK] Lead ${lead.id} ⛔ tono_molesto detectado — no se envía nada`);
+      await evolution.alertarCoordinador(
+        `⛔ CLIENTE MOLESTO — BOT PAUSADO 72h\n\n` +
+          `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
+          `Último mensaje cliente: "${(lead.ultimo_mensaje_cliente || "").substring(0, 200)}"\n\n` +
+          `Atender personalmente. Bot bloqueado por tolerancia cero.`
+      );
+      await kommo.agregarNota(
+        lead.id,
+        `⛔ HARD-BLOCK: Cliente molesto — bot pausado 72h. Requiere atención humana.`
+      );
+      await kommo.appendLog(lead.id, `[SISTEMA-BLOQUEO] cliente_molesto:72h`);
+      resultadoAccion.escalado = true;
+      reporte.escalados_humano++;
+      reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_molesto" });
+      continue;
+    }
+
+    // Hard 2: pregunta de identidad → escalar a humano siempre
+    const preguntaIdentidad = alertasCtx.some(
+      (a) => typeof a === "string" && a.includes("pregunta_identidad")
+    );
+    if (preguntaIdentidad) {
+      console.warn(`[HARD-BLOCK] Lead ${lead.id} 👤 pregunta_identidad — escalando a humano`);
+      await evolution.alertarCoordinador(
+        `👤 CLIENTE PREGUNTÓ POR IDENTIDAD (¿bot/persona?)\n\n` +
+          `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
+          `Mensaje cliente: "${(lead.ultimo_mensaje_cliente || "").substring(0, 200)}"\n\n` +
+          `Política: humano debe responder personalmente para preservar credibilidad.`
+      );
+      await kommo.agregarNota(
+        lead.id,
+        `👤 HARD-BLOCK: Cliente preguntó si es bot/IA — escalado a humano (política).`
+      );
+      await kommo.appendLog(lead.id, `[SISTEMA-BLOQUEO] pregunta_identidad`);
+      resultadoAccion.escalado = true;
+      reporte.escalados_humano++;
+      reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_identidad" });
+      continue;
+    }
+
     // PASO 5: Agente de Etapa genera mensaje → PASO 6: QA revisa
     let mensajeAprobado = null;
     let intentosQA = 0;
@@ -283,6 +333,29 @@ async function ejecutarCiclo(triggerLeadId = null) {
       resultadoAccion.escalado = true;
       reporte.escalados_humano++;
     } else {
+      // ─── VALIDACIONES HARD POST-QA (red de seguridad final) ───────────────
+      const violacion = validarMensajeFinal(mensajeAprobado);
+      if (violacion) {
+        console.error(`[HARD-BLOCK] ⛔ Mensaje bloqueado tras QA: ${violacion}`);
+        await evolution.alertarCoordinador(
+          `⛔ MENSAJE BLOQUEADO POR VALIDACIÓN HARD\n\n` +
+            `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
+            `Violación: ${violacion}\n` +
+            `Mensaje propuesto: "${mensajeAprobado.substring(0, 200)}"\n\n` +
+            `Atender manualmente. El QA no atrapó el problema.`
+        );
+        await kommo.agregarNota(
+          accion.lead_id,
+          `⛔ HARD-BLOCK post-QA: ${violacion}. Mensaje NO enviado.`
+        );
+        await kommo.appendLog(accion.lead_id, `[SISTEMA-BLOQUEO] hard_validation:${violacion}`);
+        resultadoAccion.escalado = true;
+        resultadoAccion.error = `hard_block:${violacion}`;
+        reporte.escalados_humano++;
+        reporte.detalle_acciones.push(resultadoAccion);
+        continue;
+      }
+
       // PASO 7: Enviar por WhatsApp (número fijo: 593980243197)
       try {
         await evolution.enviarMensaje(lead.telefono, mensajeAprobado);
@@ -633,6 +706,70 @@ Responde SOLO este JSON:
 }
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
+
+/**
+ * Validación HARD del mensaje final del bot — última red de seguridad antes
+ * de enviar. Bloquea si el mensaje viola una regla crítica que el QA pudo
+ * haber pasado por alto. Devuelve string con el motivo del bloqueo o null si OK.
+ */
+function validarMensajeFinal(mensaje) {
+  if (!mensaje || typeof mensaje !== "string") return "mensaje_vacio";
+  const txt = mensaje.toLowerCase();
+
+  // 1. Precios bajo el mínimo — extraer cualquier "$N por X horas" o "$N para X h"
+  // Mínimos: 1h=$100, 2h=$180, 3h=$230, 8h=$480
+  const minimos = { 1: 100, 2: 180, 3: 230, 8: 480 };
+  // Match patterns: "$150 por 2 horas", "$150 para 2h", "150 dolares 2 horas", "2h en $150"
+  const regexPrecio = /\$?\s*(\d{2,4})\s*(?:por|para|en)?\s*(\d)\s*h(?:ora)?s?/g;
+  const regexPrecio2 = /(\d)\s*h(?:ora)?s?\s*(?:por|en|de|a)\s*\$?\s*(\d{2,4})/g;
+  for (const m of mensaje.matchAll(regexPrecio)) {
+    const monto = parseInt(m[1], 10);
+    const horas = parseInt(m[2], 10);
+    if (minimos[horas] && monto < minimos[horas]) {
+      return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+    }
+  }
+  for (const m of mensaje.matchAll(regexPrecio2)) {
+    const horas = parseInt(m[1], 10);
+    const monto = parseInt(m[2], 10);
+    if (minimos[horas] && monto < minimos[horas]) {
+      return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+    }
+  }
+
+  // 2. Servicios fuera de catálogo (lista negra de palabras clave)
+  // Solo alerta si menciona en contexto de "incluye", "ofrecemos", "tenemos", "cotizar"
+  const fueraCatalogo = [
+    "dj", "sonido del evento", "iluminación general", "iluminacion general",
+    "meseros", "catering", "comida", "bebidas", "bebida",
+    "mobiliario", "mesas y sillas", "mantelería", "manteleria", "vajilla",
+    "decoración del evento", "decoracion del evento",
+    "arcos florales", "centros de mesa",
+    "fotografía profesional", "fotografia profesional", "video del evento",
+    "hora loca", "animadores", "payaso",
+  ];
+  const verbosOferta = ["incluye", "ofrecemos", "tenemos", "cotizar", "te paso", "te enviamos", "agregar"];
+  const tieneVerboOferta = verbosOferta.some((v) => txt.includes(v));
+  if (tieneVerboOferta) {
+    for (const servicio of fueraCatalogo) {
+      if (txt.includes(servicio)) {
+        return `servicio_fuera_catalogo:${servicio}`;
+      }
+    }
+  }
+
+  // 3. Auto-revelación de IA / bot (regla absoluta del prompt)
+  const revelaIA = [
+    /soy (un |una )?(ia|inteligencia artificial|bot|robot|asistente virtual|asistente automatizado)/i,
+    /(este|esto) es (un |una )?(bot|chatbot|sistema automatizado|respuesta automática)/i,
+    /soy un (modelo|programa|software)/i,
+  ];
+  for (const rgx of revelaIA) {
+    if (rgx.test(mensaje)) return "auto_revelacion_ia";
+  }
+
+  return null; // OK
+}
 
 /**
  * Extrae la última línea [SISTEMA] del log_wa de Kommo.

@@ -59,10 +59,21 @@ Cuando el supervisor te indica que el cliente dijo "yo te aviso" y aún no se le
 Variante si mencionó a una persona específica (pareja, familiar):
 > "Claro, tómate el tiempo para hablarlo 🙌 Cuando conversen me cuentan. Si no sé nada, te escribo la próxima semana."
 
-**Reglas**:
-- Máximo 25 palabras
+### Variante con objeción de precio detectada
+
+Si el contexto indica `objeciones` incluye `precio_alto` o `presupuesto_bajo` Y el cliente dijo "te aviso", siembra UN argumento de valor sutil sin presionar:
+
+> "Perfecto, conversen tranquilos 🙌 Recuerda que el 360 es lo más compartido en redes de bodas/eventos. Si no sé nada, te escribo la próxima semana."
+
+Variante para evento corporativo con objeción:
+> "Claro, lo conversan tranquilos 🙌 El 360 es la activación que más contenido orgánico genera para marcas. Te escribo la próxima semana si no tengo noticias."
+
+**Reglas estrictas**:
+- Máximo 28 palabras (un poco más para el argumento de valor)
 - No preguntes nada — este mensaje solo confirma la espera
+- Solo UN argumento de valor, no varios
 - No uses frases como "no hay problema" repetidas veces
+- No menciones precio ni descuentos
 
 ---
 
