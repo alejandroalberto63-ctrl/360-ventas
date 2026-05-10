@@ -1,0 +1,104 @@
+{
+  "name": "360 Eventos — Ciclo Supervisor (CRON 20min)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 20 }]
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000001",
+      "name": "Cada 20 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { trigger: 'cron_20min', timestamp: new Date().toISOString() } }];"
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000002",
+      "name": "Preparar trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3001/ciclo",
+        "options": {
+          "timeout": 120000,
+          "response": { "response": { "fullResponse": true, "neverError": true } }
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000003",
+      "name": "Ejecutar ciclo supervisor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000004",
+      "name": "¿Ciclo OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconsole.log('[Ciclo 360] Completado:', JSON.stringify(body, null, 2));\nreturn [{ json: { ...body, ciclo_ok: true } }];"
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000005",
+      "name": "Log éxito",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const status = $json.statusCode;\nconst body = $json.body || {};\nconsole.error('[Ciclo 360] ERROR status:', status, JSON.stringify(body));\nreturn [{ json: { error: true, status, body } }];"
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000006",
+      "name": "Log error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 420]
+    }
+  ],
+  "connections": {
+    "Cada 20 minutos": {
+      "main": [[{ "node": "Preparar trigger", "type": "main", "index": 0 }]]
+    },
+    "Preparar trigger": {
+      "main": [[{ "node": "Ejecutar ciclo supervisor", "type": "main", "index": 0 }]]
+    },
+    "Ejecutar ciclo supervisor": {
+      "main": [[{ "node": "¿Ciclo OK?", "type": "main", "index": 0 }]]
+    },
+    "¿Ciclo OK?": {
+      "main": [
+        [{ "node": "Log éxito", "type": "main", "index": 0 }],
+        [{ "node": "Log error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "360-eventos" }]
+}

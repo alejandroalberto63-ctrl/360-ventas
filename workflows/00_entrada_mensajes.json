@@ -1,0 +1,255 @@
+{
+  "name": "360 Eventos — Entrada Mensajes WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "360-entrada",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\n// Solo procesar messages.upsert del canal 360eventos\nconst evento = body?.event;\nconst instancia = body?.instance;\n\nif (evento !== 'messages.upsert' || instancia !== '360eventos') {\n  return [{ json: { skip: true, razon: `Ignorado: evento=${evento} instancia=${instancia}` } }];\n}\n\nconst msg = body?.data;\nconst remoteJid = msg?.key?.remoteJid || '';\nconst esGrupo = remoteJid.includes('@g.us');\nconst esDelBot = msg?.key?.fromMe;\nconst texto = msg?.message?.conversation || msg?.message?.extendedTextMessage?.text;\n\nif (esGrupo || esDelBot || !texto) {\n  return [{ json: { skip: true, razon: 'Grupo, propio o sin texto' } }];\n}\n\nconst telefono = remoteJid.replace('@s.whatsapp.net', '');\n\nreturn [{\n  json: {\n    skip: false,\n    telefono,\n    texto,\n    timestamp: new Date().toISOString(),\n    instancia\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "Filtrar mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "¿Ignorar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://marketas.kommo.com/api/v4/contacts?query={{ $json.telefono }}&with=leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000005",
+      "name": "Buscar contacto Kommo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "credentials": { "httpHeaderAuth": { "id": "kommo_auth", "name": "Kommo Auth" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const telefono = $('Filtrar mensaje').first().json.telefono;\nconst texto = $('Filtrar mensaje').first().json.texto;\nconst kommoData = $input.first().json;\n\nconst contactos = kommoData?._embedded?.contacts || [];\nlet leadId = null;\n\n// Buscar lead en pipeline 8699516\nfor (const contacto of contactos) {\n  const leads = contacto._embedded?.leads || [];\n  for (const lead of leads) {\n    if (lead.pipeline_id === 8699516 || !lead.pipeline_id) {\n      leadId = lead.id;\n      break;\n    }\n  }\n  if (leadId) break;\n}\n\nreturn [{\n  json: {\n    telefono,\n    texto,\n    leadId,\n    esNuevo: !leadId,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000006",
+      "name": "Identificar lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "cond2",
+              "leftValue": "={{ $json.esNuevo }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000007",
+      "name": "¿Lead nuevo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://marketas.kommo.com/api/v4/leads/complex",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"_embedded\": {\n    \"leads\": [{\n      \"name\": \"Lead 360 {{ $json.telefono }}\",\n      \"pipeline_id\": 8699516,\n      \"status_id\": 68329664,\n      \"_embedded\": {\n        \"contacts\": [{\n          \"name\": \"Lead 360 {{ $json.telefono }}\",\n          \"custom_fields_values\": [{\n            \"field_code\": \"PHONE\",\n            \"values\": [{ \"value\": \"{{ $json.telefono }}\", \"enum_code\": \"WHATSAPP\" }]\n          }]\n        }]\n      }\n    }]\n  }\n}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000008",
+      "name": "Crear lead Kommo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 180],
+      "credentials": { "httpHeaderAuth": { "id": "kommo_auth", "name": "Kommo Auth" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unificar leadId ya sea de lead existente o recién creado\nconst identificar = $('Identificar lead').first().json;\nlet leadId = identificar.leadId;\n\nif (!leadId) {\n  const creado = $('Crear lead Kommo').first().json;\n  leadId = creado?._embedded?.leads?.[0]?.id;\n}\n\nreturn [{\n  json: {\n    leadId,\n    telefono: identificar.telefono,\n    texto: identificar.texto,\n    timestamp: identificar.timestamp\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000009",
+      "name": "Unificar leadId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://marketas.kommo.com/api/v4/leads/{{ $json.leadId }}?with=contacts,custom_fields_values",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000010",
+      "name": "Obtener lead completo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300],
+      "credentials": { "httpHeaderAuth": { "id": "kommo_auth", "name": "Kommo Auth" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\nconst datos = $('Unificar leadId').first().json;\n\nconst cfv = lead.custom_fields_values || [];\nconst pausarIA = cfv.find(f => f.field_id === 1157829)?.values?.[0]?.value;\n\n// Verificar si está en etapa Reserva (bot no actúa)\nconst etapaReserva = lead.status_id === 68329676;\nconst ganado = [142, 143].includes(lead.status_id);\n\nconst detener = pausarIA === true || etapaReserva || ganado;\n\nreturn [{\n  json: {\n    ...datos,\n    leadId: lead.id,\n    nombre: lead.name,\n    etapaId: lead.status_id,\n    pausarIA: pausarIA === true,\n    etapaReserva,\n    detener,\n    razonDetencion: pausarIA ? 'Pausar IA activo' : etapaReserva ? 'En etapa Reserva' : ganado ? 'Lead cerrado' : null\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000011",
+      "name": "Verificar estado bot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "cond3",
+              "leftValue": "={{ $json.detener }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000012",
+      "name": "¿Bot detenido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://marketas.kommo.com/api/v4/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "=[{\n  \"id\": {{ $json.leadId }},\n  \"custom_fields_values\": [{\n    \"field_id\": 1158003,\n    \"values\": [{ \"value\": \"{{ $now.toISO() }} [CLIENTE]: {{ $json.texto.substring(0, 150) }}\\n\" }]\n  }]\n}]",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000013",
+      "name": "Guardar mensaje en LOG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 420],
+      "credentials": { "httpHeaderAuth": { "id": "kommo_auth", "name": "Kommo Auth" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:3001/ciclo?lead_id={{ $json.leadId }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000014",
+      "name": "Disparar ciclo supervisor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 420]
+    }
+  ],
+  "connections": {
+    "Webhook Evolution": {
+      "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }, { "node": "Filtrar mensaje", "type": "main", "index": 0 }]]
+    },
+    "Filtrar mensaje": {
+      "main": [[{ "node": "¿Ignorar?", "type": "main", "index": 0 }]]
+    },
+    "¿Ignorar?": {
+      "main": [[], [{ "node": "Buscar contacto Kommo", "type": "main", "index": 0 }]]
+    },
+    "Buscar contacto Kommo": {
+      "main": [[{ "node": "Identificar lead", "type": "main", "index": 0 }]]
+    },
+    "Identificar lead": {
+      "main": [[{ "node": "¿Lead nuevo?", "type": "main", "index": 0 }]]
+    },
+    "¿Lead nuevo?": {
+      "main": [[{ "node": "Crear lead Kommo", "type": "main", "index": 0 }], [{ "node": "Unificar leadId", "type": "main", "index": 0 }]]
+    },
+    "Crear lead Kommo": {
+      "main": [[{ "node": "Unificar leadId", "type": "main", "index": 0 }]]
+    },
+    "Unificar leadId": {
+      "main": [[{ "node": "Obtener lead completo", "type": "main", "index": 0 }]]
+    },
+    "Obtener lead completo": {
+      "main": [[{ "node": "Verificar estado bot", "type": "main", "index": 0 }]]
+    },
+    "Verificar estado bot": {
+      "main": [[{ "node": "¿Bot detenido?", "type": "main", "index": 0 }]]
+    },
+    "¿Bot detenido?": {
+      "main": [[], [{ "node": "Guardar mensaje en LOG", "type": "main", "index": 0 }]]
+    },
+    "Guardar mensaje en LOG": {
+      "main": [[{ "node": "Disparar ciclo supervisor", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "360-eventos" }]
+}
