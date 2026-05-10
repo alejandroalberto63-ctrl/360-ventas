@@ -115,16 +115,21 @@ async function ejecutarCiclo(triggerLeadId = null) {
         // entonces, construimos contexto sintético sin llamar a OpenAI. La línea [SISTEMA]
         // tiene el estado autoritativo (nivel_negociacion, seguimientos, precio, espera).
         // El forceTrigger = lead disparado por mensaje entrante → siempre llamar al LLM.
+        // Caducidad: si [SISTEMA] tiene > 30 días → siempre llamar al LLM (estado puede estar obsoleto).
         const ultimoSistema = parsearUltimaLineaSistema(lead.log_wa);
         const ultimoCliente = historial.filter((m) => m.role === "lead").pop();
         const sistemaTs = ultimoSistema ? new Date(ultimoSistema.timestamp) : null;
         const clienteTs = ultimoCliente ? new Date(ultimoCliente.timestamp) : null;
         const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
 
+        const TREINTA_DIAS_MS = 30 * 24 * 60 * 60 * 1000;
+        const sistemaObsoleto = sistemaTs && (Date.now() - sistemaTs.getTime()) > TREINTA_DIAS_MS;
+
         const puedeSaltar =
           !esTrigger &&
           ultimoSistema &&
           sistemaTs &&
+          !sistemaObsoleto &&
           (!clienteTs || clienteTs <= sistemaTs);
 
         let contexto;
