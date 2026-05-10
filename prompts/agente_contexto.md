@@ -54,10 +54,9 @@ Extraes y estructuras el contexto de un lead de 360 Eventos para que el Supervis
   },
   "espera_indicada": {
     "tiene_espera": "boolean",
-    "tipo": "reunion_familiar|consulta_pareja|consulta_empresa|pensandolo_sin_plazo|otro|null",
+    "tipo": "reunion_programada|cliente_avisara|null",
     "descripcion": "string | null",
-    "referencia_temporal": "hoy|manana|esta_semana|proxima_semana|en_X_dias|sin_plazo|null",
-    "dias_espera_estimados": "number | null",
+    "confirmacion_enviada": "boolean | null",
     "proxima_fecha_contacto": "YYYY-MM-DD | null"
   },
   "siguiente_accion_recomendada": "descripción específica de qué debe hacer el agente ahora",
@@ -75,13 +74,22 @@ Extraes y estructuras el contexto de un lead de 360 Eventos para que el Supervis
 4. `es_provincia` = true si el lugar está fuera de Quito y sus valles (Cumbayá, Tumbaco, Tababela, Armenia)
 5. `siguiente_accion_recomendada` debe ser específica: no "continuar conversación" sino "Enviar precio de 2 horas del 360 para boda del 15 de junio en Quito"
 6. En `alertas` incluye: cliente pidió hablar con humano, evento en menos de 7 días, 3+ seguimientos sin respuesta, solicitud de factura, monto > $600
-7. **`espera_indicada`**: Detecta cuando el cliente indicó explícitamente que necesita tiempo antes de decidir. Señales: "me reúno la próxima semana", "voy a consultar con mi pareja/mamá/empresa", "estamos evaluando", "te confirmo el lunes", "necesito hablar con los demás". Si detectas esto:
-   - `tiene_espera: true`
-   - `proxima_fecha_contacto`: calcula la fecha óptima de seguimiento usando FECHA_HOY (inyectada en los datos del lead). Reglas:
-     - "próxima semana" → el miércoles de la próxima semana
-     - "mañana / esta semana" → pasado mañana
-     - "el lunes / martes / [día específico]" → ese día + 1
-     - "en unos días / sin plazo claro" → 3 días desde hoy
-   - Prefiere miércoles o jueves para dar tiempo a la reunión pero sin dejar enfriarse demasiado
+7. **`espera_indicada`**: Detecta cuando el cliente indicó explícitamente que necesita tiempo antes de decidir. Hay dos subtipos:
+
+   **Subtipo A — `reunion_programada`**: Cliente tiene una reunión o consulta planificada en una fecha.
+   Señales: "me reúno la próxima semana", "el sábado lo vemos juntos", "tengo reunión el lunes con las mamás", "este fin de semana lo consultamos".
+   - `tipo: "reunion_programada"`
+   - `confirmacion_enviada: false` (no requiere mensaje inmediato del bot — la conversación sigue fluyendo)
+   - `proxima_fecha_contacto`: fecha DESPUÉS de la reunión indicada. Reglas usando FECHA_HOY:
+     - "próxima semana" → miércoles de la próxima semana
+     - "este fin de semana" → lunes siguiente
+     - "el lunes / martes / [día]" → ese día + 1
+     - Sin fecha clara → 4 días desde hoy
+
+   **Subtipo B — `cliente_avisara`**: Cliente dice que avisará él mismo cuando esté listo. No hay fecha concreta.
+   Señales: "te aviso cuando lo consulte", "no he hablado todavía con mi marido/vecino/hermano, te aviso", "cuando decidamos te mando mensaje", "yo te escribo", "no le he dicho nada todavía".
+   - `tipo: "cliente_avisara"`
+   - `confirmacion_enviada`: true si el bot ya respondió con algo como "Perfecto, te escribo la próxima semana" en un mensaje reciente. False si el bot aún no confirmó la espera.
+   - `proxima_fecha_contacto`: FECHA_HOY + 7 días (exactamente una semana)
 
 ## Devuelve SOLO el JSON, sin texto adicional

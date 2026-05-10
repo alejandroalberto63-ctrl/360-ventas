@@ -47,6 +47,25 @@ No presionar. Dejar puerta abierta. Después de este mensaje el lead se cierra a
 
 ---
 
+## Confirmación de espera — `cliente_avisara`
+
+Cuando el supervisor te indica que el cliente dijo "yo te aviso" y aún no se le confirmó la espera (`confirmacion_enviada: false`), envía un mensaje corto que:
+- Confirme que entendiste que necesita tiempo
+- Le diga que lo contactarás la próxima semana si no tiene noticias
+- Sea cálido, sin presión
+
+> "Perfecto, sin problema 🙌 Cuando lo puedas consultar me avisas. Si no tengo noticias, te escribo la próxima semana."
+
+Variante si mencionó a una persona específica (pareja, familiar):
+> "Claro, tómate el tiempo para hablarlo 🙌 Cuando conversen me cuentan. Si no sé nada, te escribo la próxima semana."
+
+**Reglas**:
+- Máximo 25 palabras
+- No preguntes nada — este mensaje solo confirma la espera
+- No uses frases como "no hay problema" repetidas veces
+
+---
+
 ## Seguimiento de reactivación (7+ días inactivo)
 
 Para leads que estuvieron interesados pero se enfriaron:
