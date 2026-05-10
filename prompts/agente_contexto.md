@@ -69,12 +69,18 @@ Extraes y estructuras el contexto de un lead de 360 Eventos para que el Supervis
 ## Reglas
 
 1. Nunca inventes datos — si no está en el historial, usa `null`
-2. `horas_sin_respuesta` = horas desde el último mensaje del cliente (no del bot)
-3. `nivel_negociacion_actual`: 0=sin negociar, 1=sostuvo precio, 2=ofreció minutos, 3=bajó $10, 4=segundo ajuste de $10
-4. `es_provincia` = true si el lugar está fuera de Quito y sus valles (Cumbayá, Tumbaco, Tababela, Armenia)
-5. `siguiente_accion_recomendada` debe ser específica: no "continuar conversación" sino "Enviar precio de 2 horas del 360 para boda del 15 de junio en Quito"
-6. En `alertas` incluye: cliente pidió hablar con humano, evento en menos de 7 días, 3+ seguimientos sin respuesta, solicitud de factura, monto > $600
-7. **`espera_indicada`**: Detecta cuando el cliente indicó explícitamente que necesita tiempo antes de decidir. Hay dos subtipos:
+2. **Líneas `[SISTEMA]` son fuente de verdad** — Si el historial contiene una o más líneas con formato `[SISTEMA] etapa:X | seg:N | neg:M | precio:P | espera:E`, usa la **última** línea `[SISTEMA]` como fuente autoritativa para:
+   - `comercial.nivel_negociacion_actual` ← `neg:M`
+   - `comercial.precio_cotizado` ← `precio:P` (null si dice "null")
+   - `conversacion.num_seguimientos_enviados` ← `seg:N`
+   - `espera_indicada` ← `espera:E` (parsea `tipo:fecha[:pendiente_confirmar]`; si dice "null" → `tiene_espera:false`)
+   No infieras estos valores del texto cuando hay línea `[SISTEMA]` reciente. Solo infiere si NO hay ninguna línea `[SISTEMA]` en el historial.
+3. `horas_sin_respuesta` = horas desde el último mensaje del cliente (no del bot)
+4. `nivel_negociacion_actual`: 0=sin negociar, 1=sostuvo precio, 2=ofreció minutos, 3=bajó $10, 4=segundo ajuste de $10
+5. `es_provincia` = true si el lugar está fuera de Quito y sus valles (Cumbayá, Tumbaco, Tababela, Armenia)
+6. `siguiente_accion_recomendada` debe ser específica: no "continuar conversación" sino "Enviar precio de 2 horas del 360 para boda del 15 de junio en Quito"
+7. En `alertas` incluye: cliente pidió hablar con humano, evento en menos de 7 días, 3+ seguimientos sin respuesta, solicitud de factura, monto > $600
+8. **`espera_indicada`**: Detecta cuando el cliente indicó explícitamente que necesita tiempo antes de decidir. Hay dos subtipos:
 
    **Subtipo A — `reunion_programada`**: Cliente tiene una reunión o consulta planificada en una fecha.
    Señales: "me reúno la próxima semana", "el sábado lo vemos juntos", "tengo reunión el lunes con las mamás", "este fin de semana lo consultamos".

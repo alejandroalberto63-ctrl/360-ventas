@@ -272,7 +272,8 @@ async function agregarNota(leadId, texto) {
 async function appendLog(leadId, linea) {
   const lead = await obtenerLead(leadId);
   const logActual = lead.log_wa || "";
-  const nuevoLog = `${logActual}\n${new Date().toISOString().slice(0, 16)} ${linea}`.slice(-3000);
+  // 8000 chars ≈ 60-80 líneas de log → suficiente para retener líneas [SISTEMA] de los últimos ciclos
+  const nuevoLog = `${logActual}\n${new Date().toISOString().slice(0, 16)} ${linea}`.slice(-8000);
   await actualizarCampos(leadId, { log_wa: nuevoLog });
 }
 

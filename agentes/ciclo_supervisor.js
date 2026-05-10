@@ -266,6 +266,28 @@ async function ejecutarCiclo(triggerLeadId = null) {
           `[BOT→${accion.agente_destino}] ${mensajeAprobado.substring(0, 120)}`
         );
 
+        // Línea [SISTEMA] — memoria persistente del estado de la IA después del envío.
+        // El Agente Contexto la lee como fuente de verdad en el siguiente ciclo.
+        try {
+          const ctx = lead.contexto || {};
+          const segPrev = ctx.conversacion?.num_seguimientos_enviados ?? 0;
+          const segActual = accion.agente_destino === "seguimiento" ? segPrev + 1 : segPrev;
+          const nivelNeg = ctx.nivel_negociacion ?? ctx.comercial?.nivel_negociacion_actual ?? 0;
+          const precio = ctx.comercial?.precio_cotizado ?? "null";
+          const etapaFinal = accion.nueva_etapa || lead.etapa_actual;
+          const esp = ctx.espera_indicada;
+          const espera = esp?.tiene_espera
+            ? `${esp.tipo}:${esp.proxima_fecha_contacto || "?"}${esp.confirmacion_enviada ? "" : ":pendiente_confirmar"}`
+            : "null";
+
+          await kommo.appendLog(
+            accion.lead_id,
+            `[SISTEMA] etapa:${etapaFinal} | seg:${segActual} | neg:${nivelNeg} | precio:${precio} | espera:${espera}`
+          );
+        } catch (errSistema) {
+          console.warn(`[SISTEMA log] No se pudo escribir línea de estado para lead ${accion.lead_id}:`, errSistema.message);
+        }
+
         await kommo.agregarNota(
           accion.lead_id,
           `Mensaje enviado [${accion.agente_destino}]: "${mensajeAprobado.substring(0, 100)}"`
