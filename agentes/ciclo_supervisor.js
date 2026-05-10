@@ -111,8 +111,29 @@ async function ejecutarCiclo(triggerLeadId = null) {
         // Historial de mensajes desde Evolution API
         const historial = await evolution.obtenerHistorial(telefono, 30);
 
-        // Contexto estructurado por el Agente de Contexto
-        const contexto = await extraerContexto({ ...lead, telefono }, historial);
+        // ⚡ Optimización: si hay línea [SISTEMA] previa Y el cliente NO escribió desde
+        // entonces, construimos contexto sintético sin llamar a OpenAI. La línea [SISTEMA]
+        // tiene el estado autoritativo (nivel_negociacion, seguimientos, precio, espera).
+        // El forceTrigger = lead disparado por mensaje entrante → siempre llamar al LLM.
+        const ultimoSistema = parsearUltimaLineaSistema(lead.log_wa);
+        const ultimoCliente = historial.filter((m) => m.role === "lead").pop();
+        const sistemaTs = ultimoSistema ? new Date(ultimoSistema.timestamp) : null;
+        const clienteTs = ultimoCliente ? new Date(ultimoCliente.timestamp) : null;
+        const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
+
+        const puedeSaltar =
+          !esTrigger &&
+          ultimoSistema &&
+          sistemaTs &&
+          (!clienteTs || clienteTs <= sistemaTs);
+
+        let contexto;
+        if (puedeSaltar) {
+          contexto = construirContextoSintetico(ultimoSistema, lead, historial);
+          console.log(`[Contexto] Lead ${lead.id} ⚡ sintético (sin mensajes nuevos)`);
+        } else {
+          contexto = await extraerContexto({ ...lead, telefono }, historial);
+        }
 
         return {
           ...lead,
@@ -123,6 +144,7 @@ async function ejecutarCiclo(triggerLeadId = null) {
           ultimo_mensaje_cliente: contexto.ultimo_mensaje_cliente,
           objeciones_detectadas: contexto.objeciones_detectadas,
           alertas_previas: contexto.alertas,
+          contexto_sintetico: !!contexto._sintetico,
         };
       })
     );
@@ -136,7 +158,13 @@ async function ejecutarCiclo(triggerLeadId = null) {
     .filter((r) => r.status === "fulfilled" && r.value !== null)
     .map((r) => r.value);
 
-  console.log(`[Supervisor] Leads con contexto: ${leadsValidos.length}`);
+  const sinteticos = leadsValidos.filter((l) => l.contexto_sintetico).length;
+  const conLLM = leadsValidos.length - sinteticos;
+  reporte.contextos_sinteticos = sinteticos;
+  reporte.contextos_con_llm = conLLM;
+  console.log(
+    `[Supervisor] Leads con contexto: ${leadsValidos.length} (${conLLM} con LLM, ${sinteticos} sintéticos ⚡)`
+  );
 
   // PASO 3: Supervisor evalúa el embudo — sin historial raw (muy pesado)
   // Solo enviamos los datos procesados para no superar el context window de GPT-4o
@@ -600,6 +628,111 @@ Responde SOLO este JSON:
 }
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
+
+/**
+ * Extrae la última línea [SISTEMA] del log_wa de Kommo.
+ * Formato esperado: "2026-05-11T10:00 [SISTEMA] etapa:X | seg:N | neg:M | precio:P | espera:E"
+ * @returns {object|null} { timestamp, etapa, seg, neg, precio, espera } o null si no hay
+ */
+function parsearUltimaLineaSistema(logWa) {
+  if (!logWa) return null;
+  const lineas = logWa.split("\n").filter((l) => l.includes("[SISTEMA]"));
+  if (!lineas.length) return null;
+  const ultima = lineas[lineas.length - 1];
+  const match = ultima.match(/^(\S+)\s+\[SISTEMA\]\s+(.+)$/);
+  if (!match) return null;
+  const timestamp = match[1];
+  const campos = {};
+  for (const par of match[2].split("|")) {
+    const idx = par.indexOf(":");
+    if (idx === -1) continue;
+    const k = par.slice(0, idx).trim();
+    const v = par.slice(idx + 1).trim();
+    campos[k] = v;
+  }
+  return { timestamp, ...campos };
+}
+
+/**
+ * Construye un contexto sintético desde la línea [SISTEMA] cuando no hay mensajes
+ * nuevos del cliente — evita una llamada a OpenAI sin perder estado crítico.
+ */
+function construirContextoSintetico(sistemaData, lead, historial) {
+  const ultimoCliente = historial.filter((m) => m.role === "lead").pop();
+  const ultimoBot = historial.filter((m) => m.role !== "lead").pop();
+
+  // Parsear el campo "espera" — formato: tipo:fecha[:pendiente_confirmar] o "null"
+  let espera = {
+    tiene_espera: false,
+    tipo: null,
+    descripcion: null,
+    confirmacion_enviada: null,
+    proxima_fecha_contacto: null,
+  };
+  if (sistemaData.espera && sistemaData.espera !== "null") {
+    const partes = sistemaData.espera.split(":");
+    espera = {
+      tiene_espera: true,
+      tipo: partes[0] || null,
+      descripcion: null,
+      confirmacion_enviada: !partes.includes("pendiente_confirmar"),
+      proxima_fecha_contacto: partes[1] && partes[1] !== "?" ? partes[1] : null,
+    };
+  }
+
+  const precio = sistemaData.precio === "null" || sistemaData.precio == null
+    ? null
+    : Number(sistemaData.precio);
+  const nivelNeg = Number(sistemaData.neg ?? 0);
+  const numSeg = Number(sistemaData.seg ?? 0);
+
+  const resumen = "Sin mensajes nuevos del cliente desde el último ciclo. Estado cargado desde memoria persistente [SISTEMA].";
+
+  return {
+    lead_id: lead.id,
+    nombre: lead.nombre,
+    telefono: lead.telefono,
+    etapa_actual: sistemaData.etapa || lead.etapa_actual,
+    datos_evento: {
+      tipo: lead.tipo_evento?.[0] || null,
+      fecha: null,
+      lugar: null,
+      es_provincia: false,
+      duracion_horas: null,
+      num_invitados: null,
+      servicio_interes: lead.servicios_interes?.[0] || null,
+      requiere_factura: null,
+    },
+    comercial: {
+      precio_cotizado: precio,
+      duracion_cotizada: null,
+      descuentos_ofrecidos: [],
+      nivel_negociacion_actual: nivelNeg,
+      anticipo_solicitado: false,
+      anticipo_confirmado: false,
+    },
+    conversacion: {
+      ultimo_mensaje_cliente: ultimoCliente?.content || "",
+      ultimo_mensaje_bot: ultimoBot?.content || "",
+      horas_sin_respuesta: 0,
+      num_seguimientos_enviados: numSeg,
+      tono_cliente: "frio",
+      objeciones: [],
+      preguntas_sin_responder: [],
+      resumen,
+    },
+    espera_indicada: espera,
+    siguiente_accion_recomendada: "Evaluar si corresponde seguimiento según tiempo transcurrido y estado de espera.",
+    alertas: [],
+    // Aliases planos para compatibilidad
+    resumen_conversacion: resumen,
+    ultimo_mensaje_cliente: ultimoCliente?.content || "",
+    objeciones_detectadas: [],
+    tono_cliente: "frio",
+    nivel_negociacion: nivelNeg,
+    _sintetico: true, // marca para debug y reportes
+  };
+}
 
 function calcularHorasSinRespuesta(historial) {
   // BOT_START_DATE: fecha desde la que empieza a contar el bot (YYYY-MM-DD, hora Ecuador UTC-5)
