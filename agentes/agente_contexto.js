@@ -19,7 +19,16 @@ async function extraerContexto(leadData, historial) {
     fuenteHistorial = "HISTORIAL WHATSAPP: (sin mensajes aún)";
   }
 
-  const user = `DATOS DEL LEAD:\n${JSON.stringify(leadData, null, 2)}\n\n${fuenteHistorial}`;
+  // Fecha actual en Ecuador para que GPT-4o calcule fechas absolutas desde referencias relativas
+  const fechaHoy = new Date().toLocaleDateString("es-EC", {
+    timeZone: "America/Guayaquil",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const user = `FECHA_HOY: ${fechaHoy}\n\nDATOS DEL LEAD:\n${JSON.stringify(leadData, null, 2)}\n\n${fuenteHistorial}`;
 
   const raw = await llamarJSON(PROMPT, user, { temperature: 0.2, maxTokens: 1024 });
 

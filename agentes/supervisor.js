@@ -7,8 +7,18 @@ const PROMPT = fs.readFileSync(path.join(__dirname, "../prompts/supervisor.md"),
 async function evaluarEmbudo(leadsActivos) {
   console.log(`[Supervisor] Evaluando ${leadsActivos.length} leads...`);
 
-  const user = `Evalúa el estado del embudo y genera el plan de acción:\n\n${JSON.stringify({
-    timestamp_ciclo: new Date().toISOString(),
+  const ahora = new Date();
+  const fechaHoy = ahora.toLocaleDateString("es-EC", {
+    timeZone: "America/Guayaquil",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const fechaISO = ahora.toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" }); // YYYY-MM-DD
+
+  const user = `FECHA_HOY: ${fechaHoy} (${fechaISO})\n\nEvalúa el estado del embudo y genera el plan de acción:\n\n${JSON.stringify({
+    timestamp_ciclo: ahora.toISOString(),
     leads_activos: leadsActivos,
   }, null, 2)}`;
 
