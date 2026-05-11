@@ -237,6 +237,39 @@ async function ejecutarCiclo(triggerLeadId = null) {
     const alertasCtx = lead.contexto?.alertas || [];
     const tonoCli = lead.contexto?.tono_cliente;
 
+    // Hard 0 (ANTI-SPAM): si el bot envió mensaje hace menos de 20 horas Y el cliente
+    // no respondió desde entonces → BLOQUEO. Esta validación es independiente del LLM
+    // supervisor y previene rachas de mensajes (bug histórico de no respetar Regla 2).
+    const VEINTE_HORAS_MS = 20 * 60 * 60 * 1000;
+    const ahora = Date.now();
+    const ultimoBotMsg = (lead.historial || [])
+      .filter((m) => m.role !== "lead")
+      .pop();
+    const ultimoClienteMsg = (lead.historial || [])
+      .filter((m) => m.role === "lead")
+      .pop();
+    if (ultimoBotMsg) {
+      const tsBot = new Date(ultimoBotMsg.timestamp).getTime();
+      const tsCli = ultimoClienteMsg ? new Date(ultimoClienteMsg.timestamp).getTime() : 0;
+      const msDesdeBot = ahora - tsBot;
+      const clienteRespondio = tsCli > tsBot;
+      // Excepciones: si el cliente respondió DESPUÉS del último mensaje del bot, sí se puede contestar
+      // O si es trigger por mensaje entrante (el cliente acaba de escribir)
+      const esTriggerLead = triggerLeadId && String(lead.id) === String(triggerLeadId);
+      if (msDesdeBot < VEINTE_HORAS_MS && !clienteRespondio && !esTriggerLead) {
+        const horasDesde = (msDesdeBot / 3600000).toFixed(1);
+        console.warn(
+          `[HARD-BLOCK] Lead ${lead.id} ⏱️ anti-spam — último bot hace ${horasDesde}h, cliente no respondió`
+        );
+        await kommo.appendLog(
+          accion.lead_id,
+          `[SISTEMA-BLOQUEO] anti_spam:bot_hace_${horasDesde}h_sin_respuesta_cliente`
+        );
+        reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_anti_spam" });
+        continue;
+      }
+    }
+
     // Hard 1: cliente molesto → BLOQUEO TOTAL + escalado
     const esMolesto =
       tonoCli === "molesto" ||
