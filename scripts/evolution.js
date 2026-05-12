@@ -164,8 +164,118 @@ async function obtenerMediaBase64(jid, messageId) {
 const obtenerImagenBase64 = obtenerMediaBase64;
 const obtenerAudioBase64 = obtenerMediaBase64;
 
+// ─── Catálogo de videos demo ──────────────────────────────────────────────
+// URLs migradas desde el workflow n8n "Enviar Video 360" (GoNB1GufBFdcRDHE)
+const CATALOGO_VIDEOS = {
+  boda: {
+    media: "https://drive.google.com/uc?export=download&id=16bCR86dTE8lih_aAIIVFPXaO3dkXzskv",
+    caption: "¡Aquí tienes una muestra de nuestro trabajo para bodas! 🎥✨",
+    fileName: "video_boda.mp4",
+  },
+  quinceanos: {
+    media: "https://drive.google.com/uc?export=download&id=1Q7BpjQ-ValpQLa5QCVJSxh_aDhIgKZ22",
+    caption: "¡Aquí tienes una muestra de nuestro trabajo en fiestas de 15 años! 👑✨",
+    fileName: "video_15_anos.mp4",
+  },
+  graduacion: {
+    media: "https://drive.usercontent.google.com/download?id=1WOy74VC6ujqEoKVHI8OqScEUT304rQwP&export=download",
+    caption: "¡Aquí tienes una muestra de nuestro trabajo en graduaciones! 🎓✨",
+    fileName: "video_graduacion.mp4",
+  },
+  corporativo: {
+    media: "https://drive.google.com/uc?export=download&id=1ldigD-vploetRlJfqdbrDekMYe07nAyY",
+    caption: "¡Aquí tienes una muestra de nuestro trabajo en eventos corporativos! 🏢✨",
+    fileName: "video_corporativo.mp4",
+  },
+  photobooth: {
+    media: "https://drive.google.com/uc?export=download&id=1BAsHGzBsQI4STSYHXcUVaMPFyCVOdbu3",
+    caption: "¡Mira lo divertidas que salen las fotos con nuestro PhotoBooth y el cotillón! 📸✨",
+    fileName: "photobooth.mp4",
+  },
+  efectos: {
+    media: "https://drive.google.com/uc?export=download&id=1H4Ix1hjhB42Zytg-EAaGFXslVXStNZCR",
+    caption: "¡Mira cómo lucen nuestros efectos especiales para hacer tu momento inolvidable! ✨💨",
+    fileName: "efecto.mp4",
+  },
+};
+
+// Aliases para tipos de evento que el agente usa con nombres distintos
+const ALIASES_VIDEO = {
+  "15_anos": "quinceanos",
+  "15años": "quinceanos",
+  "quince": "quinceanos",
+  "boda": "boda",
+  "bodas": "boda",
+  "grado": "graduacion",
+  "graduacion": "graduacion",
+  "graduación": "graduacion",
+  "corporativo": "corporativo",
+  "empresarial": "corporativo",
+  "photobooth": "photobooth",
+  "photo_booth": "photobooth",
+  "fotobooth": "photobooth",
+  "efectos": "efectos",
+  "niebla": "efectos",
+  "pirotecnia": "efectos",
+};
+
+/**
+ * Resuelve un tipo de evento (con aliases) a la clave del catálogo.
+ * Devuelve null si no hay video para ese tipo.
+ */
+function resolverTipoVideo(tipoEvento) {
+  if (!tipoEvento) return null;
+  const key = String(tipoEvento).toLowerCase().trim();
+  return ALIASES_VIDEO[key] || (CATALOGO_VIDEOS[key] ? key : null);
+}
+
+/**
+ * Envía un video demo según el tipo de evento.
+ * @param {string} telefono - Número destino (solo dígitos)
+ * @param {string} tipoEvento - boda | quinceanos | graduacion | corporativo | photobooth | efectos
+ * @returns {object|null} Respuesta de Evolution o null si el tipo no existe.
+ */
+async function enviarVideo(telefono, tipoEvento) {
+  const clave = resolverTipoVideo(tipoEvento);
+  if (!clave) {
+    console.warn(`[Evolution] No hay video demo para tipo "${tipoEvento}"`);
+    return null;
+  }
+  const video = CATALOGO_VIDEOS[clave];
+  const telefonoLimpio = telefono.replace(/\D/g, "");
+  const url = `${BASE}/message/sendMedia/${INSTANCE}`;
+
+  const body = {
+    number: telefonoLimpio,
+    mediatype: "video",
+    mimetype: "video/mp4",
+    media: video.media,
+    caption: video.caption,
+    fileName: video.fileName,
+    delay: 1500,
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: HEADERS,
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution sendMedia error: ${res.status} — ${err}`);
+  }
+
+  const data = await res.json();
+  console.log(`[Evolution] 🎥 Video "${clave}" enviado a ${telefonoLimpio} | ID: ${data?.key?.id}`);
+  return { ...data, tipo_video: clave };
+}
+
 module.exports = {
   enviarMensaje,
+  enviarVideo,
+  resolverTipoVideo,
+  CATALOGO_VIDEOS,
   obtenerHistorial,
   obtenerImagenBase64,
   obtenerAudioBase64,

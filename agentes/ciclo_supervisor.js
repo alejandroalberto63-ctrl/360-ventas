@@ -443,6 +443,38 @@ async function ejecutarCiclo(triggerLeadId = null) {
           `[BOT→${accion.agente_destino}] ${mensajeAprobado.substring(0, 120)}`
         );
 
+        // ─── VIDEO DEMO automático ──────────────────────────────────────────
+        // Si el lead tiene tipo_evento identificado Y no se le ha enviado video
+        // de ese tipo todavía Y la etapa es de venta/calificación, manda demo.
+        try {
+          const tipoEvento = lead.contexto?.datos_evento?.tipo
+            || (Array.isArray(lead.tipo_evento) ? lead.tipo_evento[0] : null);
+          const claveVideo = evolution.resolverTipoVideo(tipoEvento);
+          const logActual = lead.log_wa || "";
+          const yaEnviado = claveVideo && logActual.includes(`[SISTEMA-VIDEO] tipo=${claveVideo}`);
+          const etapasParaVideo = ["contacto_inicial", "negociacion"];
+          const esEtapaValida = etapasParaVideo.includes(accion.nueva_etapa || lead.etapa_actual);
+
+          if (claveVideo && !yaEnviado && esEtapaValida) {
+            // Pequeña pausa para que el texto llegue primero
+            await new Promise((r) => setTimeout(r, 2000));
+            const videoRes = await evolution.enviarVideo(lead.telefono, claveVideo);
+            if (videoRes) {
+              await kommo.appendLog(
+                accion.lead_id,
+                `[BOT→video] tipo=${claveVideo}`
+              );
+              await kommo.appendLog(
+                accion.lead_id,
+                `[SISTEMA-VIDEO] tipo=${claveVideo} enviado=true`
+              );
+              console.log(`[Video] 🎥 Demo "${claveVideo}" enviado al lead ${accion.lead_id}`);
+            }
+          }
+        } catch (errVideo) {
+          console.warn(`[Video] Error enviando demo al lead ${accion.lead_id}:`, errVideo.message);
+        }
+
         // Línea [SISTEMA] — memoria persistente del estado de la IA después del envío.
         // El Agente Contexto la lee como fuente de verdad en el siguiente ciclo.
         try {
