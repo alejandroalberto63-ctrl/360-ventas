@@ -237,19 +237,26 @@ async function ejecutarCiclo(triggerLeadId = null) {
     const alertasCtx = lead.contexto?.alertas || [];
     const tonoCli = lead.contexto?.tono_cliente;
 
-    // Hard -1 (CIERRE AUTOMÁTICO): 5 mensajes consecutivos del bot sin respuesta
-    // → cerrar como "perdido" — cliente que claramente no contesta.
-    // Cuenta desde el final del historial hacia atrás, se detiene al ver mensaje del cliente.
-    const consecutivosBot = (() => {
-      const h = lead.historial || [];
-      let n = 0;
-      for (let i = h.length - 1; i >= 0; i--) {
-        if (h[i].role !== "lead") n++;
-        else break;
-      }
-      return n;
-    })();
-    if (consecutivosBot >= 5) {
+    // Hard -1 (CIERRE AUTOMÁTICO ÚNICO — DEPURACIÓN 12 MAYO 2026):
+    // Regla especial activa SOLO el 12 de mayo de 2026 en hora Ecuador (UTC-5).
+    // Cuenta mensajes del bot consecutivos desde el final del historial. Si llega a 5+,
+    // cierra el lead como "perdido". Después del 12 de mayo esta validación queda
+    // inactiva automáticamente y el cierre vuelve a la lógica normal de Regla 3
+    // (5 seguimientos + 120h sin respuesta).
+    const FIN_DEPURACION_5MSGS = new Date("2026-05-13T05:00:00.000Z"); // 00:00 EC del 13 mayo
+    const depuracionActiva = Date.now() < FIN_DEPURACION_5MSGS.getTime();
+    const consecutivosBot = depuracionActiva
+      ? (() => {
+          const h = lead.historial || [];
+          let n = 0;
+          for (let i = h.length - 1; i >= 0; i--) {
+            if (h[i].role !== "lead") n++;
+            else break;
+          }
+          return n;
+        })()
+      : 0;
+    if (depuracionActiva && consecutivosBot >= 5) {
       console.warn(
         `[HARD-CLOSE] Lead ${lead.id} 🚪 cerrando — ${consecutivosBot} mensajes consecutivos del bot sin respuesta`
       );
