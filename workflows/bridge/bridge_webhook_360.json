@@ -5,16 +5,16 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "360-entrada",
+        "path": "360-bridge-in",
         "responseMode": "responseNode",
         "options": {}
       },
       "id": "node_webhook",
-      "name": "Webhook /360-entrada",
+      "name": "Webhook /360-bridge-in",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [0, 0],
-      "webhookId": "360-entrada"
+      "webhookId": "360-bridge-in"
     },
     {
       "parameters": {
@@ -50,7 +50,7 @@
     }
   ],
   "connections": {
-    "Webhook /360-entrada": { "main": [[{ "node": "POST /webhook/360 a Node.js", "type": "main", "index": 0 }]] },
+    "Webhook /360-bridge-in": { "main": [[{ "node": "POST /webhook/360 a Node.js", "type": "main", "index": 0 }]] },
     "POST /webhook/360 a Node.js": { "main": [[{ "node": "Responder 200 a Evolution", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
