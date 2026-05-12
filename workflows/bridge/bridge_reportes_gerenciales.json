@@ -1,0 +1,52 @@
+{
+  "name": "360 Reportes Gerenciales → WhatsApp Dueño",
+  "active": true,
+  "_n8n_id": "Zwrq1HzQbg1299Ht",
+  "_horarios_ecuador": ["9:30 AM", "2:00 PM", "6:05 PM"],
+  "_horarios_utc": ["14:30", "19:00", "23:05"],
+  "_destino": "WA_DUENO_360 (env var en el servidor Node.js)",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "30 14 * * *" }] } },
+      "id": "trigger_manana",
+      "name": "9:30 AM EC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, -150]
+    },
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 19 * * *" }] } },
+      "id": "trigger_tarde",
+      "name": "2:00 PM EC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0]
+    },
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "5 23 * * *" }] } },
+      "id": "trigger_noche",
+      "name": "6:05 PM EC (cierre)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 150]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://marketa-360-ventas.hoqkyr.easypanel.host/reporte-gerencial",
+        "options": { "timeout": 120000, "response": { "response": { "responseFormat": "json" } } }
+      },
+      "id": "http_reporte",
+      "name": "POST /reporte-gerencial",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 0]
+    }
+  ],
+  "connections": {
+    "9:30 AM EC": { "main": [[{ "node": "POST /reporte-gerencial", "type": "main", "index": 0 }]] },
+    "2:00 PM EC": { "main": [[{ "node": "POST /reporte-gerencial", "type": "main", "index": 0 }]] },
+    "6:05 PM EC (cierre)": { "main": [[{ "node": "POST /reporte-gerencial", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

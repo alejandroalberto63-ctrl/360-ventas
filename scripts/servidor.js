@@ -8,12 +8,15 @@
 require("dotenv").config();
 const express = require("express");
 const { ejecutarCiclo, procesarMensajeEntrante } = require("../agentes/ciclo_supervisor");
+const { generarReporteTexto } = require("./reportes/reporte_gerencial");
+const evolution = require("./evolution");
 const config = require("./config");
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
+const WA_DUENO = process.env.WA_DUENO_360;
 
 let cicloEnCurso = false;
 let ultimoReporte = null;
@@ -79,13 +82,53 @@ app.get("/reporte", (_, res) => {
   res.json(ultimoReporte);
 });
 
+// ─── Reporte gerencial → WhatsApp del dueño ───────────────────────────────
+// POST /reporte-gerencial   (sin body necesario)
+// Genera el reporte y lo manda al WA_DUENO_360.
+app.post("/reporte-gerencial", async (req, res) => {
+  res.json({ status: "iniciado", destino: WA_DUENO });
+  if (!WA_DUENO) {
+    console.error("[Reporte] WA_DUENO_360 no configurado en env");
+    return;
+  }
+  try {
+    const txt = await generarReporteTexto("wa");
+    // WhatsApp tiene límite de ~4096 chars en un solo mensaje, partimos si excede
+    if (txt.length <= 4000) {
+      await evolution.enviarMensaje(WA_DUENO, txt);
+    } else {
+      const partes = [];
+      let actual = "";
+      for (const linea of txt.split("\n")) {
+        if ((actual + linea + "\n").length > 3800) {
+          partes.push(actual);
+          actual = "";
+        }
+        actual += linea + "\n";
+      }
+      if (actual.trim()) partes.push(actual);
+      for (let i = 0; i < partes.length; i++) {
+        await evolution.enviarMensaje(
+          WA_DUENO,
+          `_(parte ${i + 1}/${partes.length})_\n\n${partes[i]}`
+        );
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    console.log(`[Reporte] ✓ Enviado a ${WA_DUENO}`);
+  } catch (err) {
+    console.error("[Reporte] Error:", err.message);
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`\n✅ Servidor 360 Eventos corriendo en puerto ${PORT}`);
   console.log(`📱 Canal WhatsApp: ${config.whatsapp.numero}`);
   console.log(`📊 Pipeline Kommo: ${config.kommo.pipelineId || "⚠️  sin configurar"}`);
   console.log(`\nEndpoints:`);
-  console.log(`  GET  /status      → Estado del sistema`);
-  console.log(`  POST /ciclo       → Disparar ciclo supervisor`);
-  console.log(`  POST /webhook/360 → Webhook Evolution API`);
-  console.log(`  GET  /reporte     → Último reporte\n`);
+  console.log(`  GET  /status            → Estado del sistema`);
+  console.log(`  POST /ciclo             → Disparar ciclo supervisor`);
+  console.log(`  POST /webhook/360       → Webhook Evolution API`);
+  console.log(`  GET  /reporte           → Último reporte`);
+  console.log(`  POST /reporte-gerencial → Genera y envía reporte al WA del dueño\n`);
 });
