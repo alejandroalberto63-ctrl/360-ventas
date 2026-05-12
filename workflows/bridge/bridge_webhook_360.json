@@ -1,0 +1,57 @@
+{
+  "name": "360 Bridge — Webhook Evolution → Node.js",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "360-entrada",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node_webhook",
+      "name": "Webhook /360-entrada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "360-entrada"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://marketa-360-ventas.hoqkyr.easypanel.host/webhook/360",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 5000,
+          "response": {
+            "response": { "responseFormat": "json", "neverError": true }
+          }
+        }
+      },
+      "id": "node_http",
+      "name": "POST /webhook/360 a Node.js",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": { "responseCode": 200 }
+      },
+      "id": "node_respond",
+      "name": "Responder 200 a Evolution",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [480, 0]
+    }
+  ],
+  "connections": {
+    "Webhook /360-entrada": { "main": [[{ "node": "POST /webhook/360 a Node.js", "type": "main", "index": 0 }]] },
+    "POST /webhook/360 a Node.js": { "main": [[{ "node": "Responder 200 a Evolution", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
