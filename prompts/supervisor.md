@@ -154,7 +154,7 @@ Escala a humano SOLO cuando:
 
 1. Si `pausar_ia: true` → no generes acción para ese lead. Humano lo atiende.
 2. Si el bot ya envió mensaje hace menos de 20 horas y el cliente no respondió → no envíes otro (excepto si el cliente acaba de escribir).
-3. Máximo 5 mensajes automáticos sin respuesta del cliente. Después del 5to mensaje (≥120h sin réplica) → mover a `perdido` automáticamente. No escalar a humano por silencio.
+3. **Máximo 5 mensajes consecutivos del bot sin respuesta del cliente.** Si el historial tiene 5 mensajes seguidos del bot sin ninguna respuesta del cliente en medio → mover a `perdido` automáticamente y NO enviar más mensajes. Esto se aplica sin importar cuánto tiempo haya pasado: 5 sin respuesta = cliente que no contesta. El sistema tiene una validación HARD en código que cierra el lead aunque el supervisor no lo haga.
 4. No ofrecer precio mínimo sin antes calificar el evento.
 5. No mezclar datos entre leads.
 6. Si el lead tiene fecha de evento en menos de 7 días → prioridad urgente siempre.

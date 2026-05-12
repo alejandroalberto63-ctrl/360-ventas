@@ -237,6 +237,37 @@ async function ejecutarCiclo(triggerLeadId = null) {
     const alertasCtx = lead.contexto?.alertas || [];
     const tonoCli = lead.contexto?.tono_cliente;
 
+    // Hard -1 (CIERRE AUTOMÁTICO): 5 mensajes consecutivos del bot sin respuesta
+    // → cerrar como "perdido" — cliente que claramente no contesta.
+    // Cuenta desde el final del historial hacia atrás, se detiene al ver mensaje del cliente.
+    const consecutivosBot = (() => {
+      const h = lead.historial || [];
+      let n = 0;
+      for (let i = h.length - 1; i >= 0; i--) {
+        if (h[i].role !== "lead") n++;
+        else break;
+      }
+      return n;
+    })();
+    if (consecutivosBot >= 5) {
+      console.warn(
+        `[HARD-CLOSE] Lead ${lead.id} 🚪 cerrando — ${consecutivosBot} mensajes consecutivos del bot sin respuesta`
+      );
+      try {
+        await kommo.moverEtapa(accion.lead_id, "perdido");
+        await kommo.appendLog(
+          accion.lead_id,
+          `[SISTEMA-CIERRE] auto_perdido:${consecutivosBot}_msgs_bot_sin_respuesta`
+        );
+      } catch (e) {
+        console.error(`[HARD-CLOSE] Error cerrando lead ${lead.id}:`, e.message);
+      }
+      resultadoAccion.razon = "hard_close_5_sin_respuesta";
+      resultadoAccion.nueva_etapa = "perdido";
+      reporte.detalle_acciones.push(resultadoAccion);
+      continue;
+    }
+
     // Hard 0 (ANTI-SPAM): si el bot envió mensaje hace menos de 20 horas Y el cliente
     // no respondió desde entonces → BLOQUEO. Esta validación es independiente del LLM
     // supervisor y previene rachas de mensajes (bug histórico de no respetar Regla 2).
