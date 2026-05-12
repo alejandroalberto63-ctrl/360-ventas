@@ -486,12 +486,13 @@ async function procesarMensajeEntrante(payload) {
   const imagenMsg = message.imageMessage || null;
   const audioMsg = message.audioMessage || message.pttMessage || null;
 
-  // ── Buscar/crear lead PRIMERO (necesario para todos los flujos) ─────────
+  // ── Buscar lead existente — Node.js NUNCA crea leads. ────────────────────
+  // Trabajamos solo con leads que ya están en Kommo (creados por otra fuente).
+  // Si el teléfono no tiene lead todavía, ignoramos el mensaje hasta que aparezca.
   let lead = await kommo.buscarLeadPorTelefono(telefono);
   if (!lead) {
-    console.log(`[Kommo] Lead nuevo — creando para ${telefono}`);
-    lead = await kommo.crearLead(telefono);
-    await kommo.agregarNota(lead.id, `Primer contacto vía WhatsApp ${config.whatsapp.numero}`);
+    console.log(`[Webhook] Mensaje de ${telefono} sin lead en Kommo — IGNORADO (Node.js no crea leads)`);
+    return;
   }
 
   // Pausar IA → humano atiende, no hacemos nada (ni siquiera log automático)
