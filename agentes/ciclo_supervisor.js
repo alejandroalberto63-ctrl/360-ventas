@@ -95,15 +95,47 @@ async function ejecutarCiclo(triggerLeadId = null) {
     return reporte;
   }
 
-  // PASO 2: Enriquecer leads en LOTES DE 5 para no saturar OpenAI/Kommo/Evolution
-  // Procesar en paralelo de a 5, con 500ms de pausa entre lotes
+  // PASO 2-PRE: Pre-filtro barato usando solo log_wa (sin API calls).
+  // Elimina leads bloqueados por anti-spam ANTES de gastar en Evolution/OpenAI.
+  // El pre-filtro es una aproximación rápida; HARD-0 (historial real) sigue activo como red final.
+  const leadsAProcessar = [];
+  const leadsPreFiltrados = [];
+
+  for (const lead of leads) {
+    const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
+    if (esTrigger) {
+      leadsAProcessar.push(lead);
+      continue;
+    }
+    const filtro = preFiltroPorLogWa(lead);
+    if (filtro.procesar) {
+      leadsAProcessar.push(lead);
+    } else {
+      leadsPreFiltrados.push({ id: lead.id, razon: filtro.razon });
+    }
+  }
+
+  reporte.leads_pre_filtrados = leadsPreFiltrados.length;
+  reporte.leads_a_procesar = leadsAProcessar.length;
+  console.log(
+    `[PreFiltro] ⚡ ${leadsAProcessar.length} a procesar / ${leadsPreFiltrados.length} omitidos (anti-spam o en espera)`
+  );
+
+  if (leadsAProcessar.length === 0) {
+    console.log("[Supervisor] Sin leads que requieran acción. Ciclo completado.");
+    reporte.duracion_ms = Date.now() - inicio;
+    return reporte;
+  }
+
+  // PASO 2: Enriquecer SOLO los leads que pasaron el pre-filtro — lotes de 5
   const leadsEnriquecidos = [];
   const LOTE = 5;
 
-  for (let i = 0; i < leads.length; i += LOTE) {
+  for (let i = 0; i < leadsAProcessar.length; i += LOTE) {
     const lote = leads.slice(i, i + LOTE);
     const resultadosLote = await Promise.allSettled(
       lote.map(async (lead) => {
+        // (lead viene de leadsAProcessar — ya pasó el pre-filtro)
         // El teléfono ya viene en el lead (obtenido en batch por kommo.obtenerLeadsActivos)
         const telefono = lead.telefono;
         if (!telefono) return null;
@@ -156,7 +188,7 @@ async function ejecutarCiclo(triggerLeadId = null) {
     leadsEnriquecidos.push(...resultadosLote);
 
     // Pausa entre lotes para respetar rate limits
-    if (i + LOTE < leads.length) await new Promise((r) => setTimeout(r, 500));
+    if (i + LOTE < leadsAProcessar.length) await new Promise((r) => setTimeout(r, 500));
   }
 
   const leadsValidos = leadsEnriquecidos
@@ -978,6 +1010,79 @@ function construirContextoSintetico(sistemaData, lead, historial) {
     nivel_negociacion: nivelNeg,
     _sintetico: true, // marca para debug y reportes
   };
+}
+
+/**
+ * Pre-filtro barato: decide si un lead necesita atención en este ciclo
+ * usando SOLO su log_wa de Kommo (ya disponible, sin llamadas a API externas).
+ *
+ * Filtra fuera:
+ *   - Lead donde el bot escribió hace < 20h y el cliente no respondió después (anti-spam)
+ *   - Lead en espera con fecha futura (cliente_avisara / reunion_programada)
+ *
+ * Devuelve { procesar: bool, razon: string }
+ */
+function preFiltroPorLogWa(lead) {
+  const log = lead.log_wa || "";
+
+  // ── 1. Espera con fecha futura ────────────────────────────────────────────
+  const ultimoSistema = parsearUltimaLineaSistema(log);
+  if (ultimoSistema?.espera && ultimoSistema.espera !== "null") {
+    const partes = ultimoSistema.espera.split(":");
+    const fechaEspera = partes[1]; // formato YYYY-MM-DD
+    if (fechaEspera && fechaEspera !== "?" && fechaEspera.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const hoyEC = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" });
+      if (fechaEspera > hoyEC) {
+        return { procesar: false, razon: `espera_hasta:${fechaEspera}` };
+      }
+    }
+  }
+
+  // ── 2. Anti-spam desde log_wa ─────────────────────────────────────────────
+  // Busca la línea más reciente [BOT→...] y verifica si hubo [CLIENTE] después.
+  if (!log) return { procesar: true, razon: "sin_log" };
+
+  const lineas = log.split("\n").filter((l) => l.trim());
+  // Recorrer de atrás hacia adelante
+  let ultimaBotTs = null;
+  let clienteRespondioDesdeBot = false;
+
+  for (let i = lineas.length - 1; i >= 0; i--) {
+    const linea = lineas[i];
+
+    // Si encontramos un mensaje del cliente ANTES de haber encontrado el bot → respondió
+    if (ultimaBotTs === null && linea.includes("[CLIENTE")) {
+      // Hay mensaje de cliente más reciente que cualquier bot → siempre procesar
+      clienteRespondioDesdeBot = true;
+      break;
+    }
+
+    if (linea.includes("[BOT→") && !linea.includes("[SISTEMA-BLOQUEO]")) {
+      // Extraer timestamp (formato ISO al inicio de la línea)
+      const tsMatch = linea.match(/^(\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+)\s+/);
+      if (tsMatch) {
+        ultimaBotTs = new Date(tsMatch[1]).getTime();
+        if (isNaN(ultimaBotTs)) { ultimaBotTs = null; continue; }
+        // Ya tenemos el último bot — revisar si hay cliente DESPUÉS en líneas posteriores
+        for (let j = i + 1; j < lineas.length; j++) {
+          if (lineas[j].includes("[CLIENTE")) {
+            clienteRespondioDesdeBot = true;
+            break;
+          }
+        }
+        break; // encontramos el último bot
+      }
+    }
+  }
+
+  if (!ultimaBotTs) return { procesar: true, razon: "nunca_contactado" };
+  if (clienteRespondioDesdeBot) return { procesar: true, razon: "cliente_respondio" };
+
+  const VEINTE_HORAS_MS = 20 * 60 * 60 * 1000;
+  const horasDesdeBot = (Date.now() - ultimaBotTs) / 3_600_000;
+  if (horasDesdeBot >= 20) return { procesar: true, razon: "20h_pasadas" };
+
+  return { procesar: false, razon: `anti_spam_log:${horasDesdeBot.toFixed(1)}h_sin_respuesta` };
 }
 
 function calcularHorasSinRespuesta(historial) {

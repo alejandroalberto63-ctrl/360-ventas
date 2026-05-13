@@ -267,10 +267,18 @@ async function generarReporteTexto(modo = "wa") {
         L.push(`🕐 Último ciclo: _ninguno aún_`);
       }
       if (j2 && j2.duracion_ms) {
-        const ahorro = j2.contextos_sinteticos > 0
-          ? Math.round((j2.contextos_sinteticos * 100) / (j2.contextos_con_llm + j2.contextos_sinteticos))
+        const totalCtx = (j2.contextos_con_llm || 0) + (j2.contextos_sinteticos || 0);
+        const preFiltrados = j2.leads_pre_filtrados || 0;
+        const aProcesar = j2.leads_a_procesar || totalCtx;
+        const totalLeads = j2.leads_revisados || (aProcesar + preFiltrados);
+        const ahorroTotal = totalLeads > 0
+          ? Math.round(((preFiltrados + (j2.contextos_sinteticos || 0)) * 100) / totalLeads)
           : 0;
-        L.push(`⚡ Ahorro OpenAI por memoria: *${ahorro}%*`);
+        L.push(`🔢 Leads revisados: *${totalLeads}* → procesados: *${aProcesar}* | omitidos: *${preFiltrados}*`);
+        L.push(`⚡ Ahorro OpenAI: *${ahorroTotal}%* (pre-filtro + memoria)`);
+        if (j2.errores?.length > 0) {
+          L.push(`⚠️ Errores último ciclo: *${j2.errores.length}* (ver logs)`);
+        }
       }
     } else {
       L.push("━━━ SALUD DEL SISTEMA ━━━");
@@ -279,8 +287,14 @@ async function generarReporteTexto(modo = "wa") {
       L.push(`  Mensajes último ciclo:    ${j.ultimo_enviados ?? "—"}`);
       L.push(`  Escalados último:         ${j.ultimo_escalados ?? "—"}`);
       if (j2 && j2.duracion_ms) {
+        const preFiltrados = j2.leads_pre_filtrados || 0;
+        L.push(`  Leads revisados/procesados: ${j2.leads_revisados ?? "—"}/${j2.leads_a_procesar ?? "—"}`);
+        L.push(`  Pre-filtrados (sin API):  ${preFiltrados}`);
         L.push(`  Duración último ciclo:    ${(j2.duracion_ms / 1000).toFixed(1)}s`);
         L.push(`  Contextos LLM/sintéticos: ${j2.contextos_con_llm}/${j2.contextos_sinteticos}`);
+        if (j2.errores?.length > 0) {
+          L.push(`  ⚠️ Errores: ${j2.errores.map((e) => e.etapa).join(", ")}`);
+        }
       }
     }
   } catch (e) {

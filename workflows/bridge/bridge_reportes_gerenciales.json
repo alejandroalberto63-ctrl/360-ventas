@@ -4,10 +4,11 @@
   "_n8n_id": "Zwrq1HzQbg1299Ht",
   "_horarios_ecuador": ["9:30 AM", "2:00 PM", "6:05 PM"],
   "_horarios_utc": ["14:30", "19:00", "23:05"],
+  "_nota_timezone": "n8n corre en UTC-5 (hora Ecuador). Crons escritos en hora local EC.",
   "_destino": "WA_DUENO_360 (env var en el servidor Node.js)",
   "nodes": [
     {
-      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "30 14 * * *" }] } },
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "30 9 * * *" }] } },
       "id": "trigger_manana",
       "name": "9:30 AM EC",
       "type": "n8n-nodes-base.scheduleTrigger",
@@ -15,7 +16,7 @@
       "position": [0, -150]
     },
     {
-      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 19 * * *" }] } },
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 14 * * *" }] } },
       "id": "trigger_tarde",
       "name": "2:00 PM EC",
       "type": "n8n-nodes-base.scheduleTrigger",
@@ -23,7 +24,7 @@
       "position": [0, 0]
     },
     {
-      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "5 23 * * *" }] } },
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "5 18 * * *" }] } },
       "id": "trigger_noche",
       "name": "6:05 PM EC (cierre)",
       "type": "n8n-nodes-base.scheduleTrigger",
