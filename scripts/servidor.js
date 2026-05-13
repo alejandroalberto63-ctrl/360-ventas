@@ -35,20 +35,24 @@ app.get("/status", (_, res) => {
   });
 });
 
-// ─── Trigger ciclo desde n8n (CRON cada 20 min) ───────────────────────────
+// ─── Trigger ciclo desde n8n ──────────────────────────────────────────────
+// GET ?lead_id=X   → ciclo inmediato para ese lead (webhook entrante)
+// GET ?barrido=true → ciclo completo + resumen ejecutivo (barrido diario 9 AM)
+// Sin params       → ciclo normal cada 5 min, sin resumen
 
 app.post("/ciclo", async (req, res) => {
-  const triggerLeadId = req.query.lead_id || null;
+  const triggerLeadId = req.query.lead_id  || null;
+  const enviarResumen = req.query.barrido  === "true";
 
   if (cicloEnCurso) {
     return res.json({ status: "en_curso", mensaje: "Ya hay un ciclo ejecutándose" });
   }
 
-  res.json({ status: "iniciado", trigger: triggerLeadId || "programado" });
+  res.json({ status: "iniciado", trigger: triggerLeadId || (enviarResumen ? "barrido_diario" : "programado") });
 
   cicloEnCurso = true;
   try {
-    ultimoReporte = await ejecutarCiclo(triggerLeadId);
+    ultimoReporte = await ejecutarCiclo(triggerLeadId, { enviarResumen });
   } catch (err) {
     console.error("[Servidor] Error en ciclo:", err.message);
   } finally {
@@ -95,7 +99,7 @@ app.post("/reporte-gerencial", async (req, res) => {
     const txt = await generarReporteTexto("wa");
     // WhatsApp tiene límite de ~4096 chars en un solo mensaje, partimos si excede
     if (txt.length <= 4000) {
-      await evolution.enviarMensaje(WA_DUENO, txt);
+      await evolution.enviarSistema(WA_DUENO, txt);
     } else {
       const partes = [];
       let actual = "";
@@ -108,7 +112,7 @@ app.post("/reporte-gerencial", async (req, res) => {
       }
       if (actual.trim()) partes.push(actual);
       for (let i = 0; i < partes.length; i++) {
-        await evolution.enviarMensaje(
+        await evolution.enviarSistema(
           WA_DUENO,
           `_(parte ${i + 1}/${partes.length})_\n\n${partes[i]}`
         );

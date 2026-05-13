@@ -47,7 +47,7 @@ function programarCicloDebounced(leadId) {
 
 // ─── Ciclo Principal ─────────────────────────────────────────────────────────
 
-async function ejecutarCiclo(triggerLeadId = null) {
+async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {}) {
   const inicio = Date.now();
   console.log(`\n${"═".repeat(60)}`);
   console.log(`[Supervisor 360] ${new Date().toISOString()}`);
@@ -553,8 +553,9 @@ async function ejecutarCiclo(triggerLeadId = null) {
   console.log(`[Ciclo] OpenAI: ${reporte.openai_usage.total_tokens} tokens | $${reporte.openai_costo_usd}`);
   console.log(`${"═".repeat(60)}\n`);
 
-  // Resumen ejecutivo por WhatsApp — SOLO en barrido diario completo (no en respuestas individuales)
-  if (!triggerLeadId) {
+  // Resumen ejecutivo — solo cuando n8n lo pide explícitamente (?barrido=true)
+  // El CRON de 5 min NO lo envía. Solo el barrido diario de las 9 AM lo hace.
+  if (!triggerLeadId && enviarResumen) {
     await enviarResumenEjecutivo(reporte).catch((err) =>
       console.error("[ResumenEjecutivo] Error enviando:", err.message)
     );
