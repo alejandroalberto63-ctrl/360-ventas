@@ -265,9 +265,17 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       continue;
     }
 
-    // Esperar → no enviar nada
+    // Esperar → no enviar nada, pero sí mover etapa si el supervisor lo indica
     if (accion.accion === "esperar") {
       console.log(`[Esperar] Motivo: ${accion.razon_decision}`);
+      if (accion.nueva_etapa && accion.nueva_etapa !== lead.etapa_actual) {
+        try {
+          await kommo.moverEtapa(accion.lead_id, accion.nueva_etapa);
+          console.log(`[Esperar] Lead ${accion.lead_id} movido a "${accion.nueva_etapa}"`);
+        } catch (err) {
+          console.error(`[Esperar] Error moviendo etapa lead ${accion.lead_id}:`, err.message);
+        }
+      }
       reporte.detalle_acciones.push({ ...resultadoAccion, razon: "esperar" });
       continue;
     }
