@@ -107,22 +107,32 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
   }
 
   // ─── PIPELINE LEAD-POR-LEAD ─────────────────────────────────────────────────
-  // Orden: trigger lead primero, luego por etapa (contacto_inicial → seguimiento → negociacion)
+  // Cuando hay triggerLeadId (mensaje entrante de un cliente), procesamos SOLO ese lead.
+  // El barrido de todos los demás leads es exclusivo del ciclo diario de las 9 AM.
+  // Esto previene que un mensaje entrante dispare N pipelines de OpenAI en paralelo.
   const ORDEN_ETAPAS = ["nuevo", "contacto_inicial", "seguimiento", "negociacion", "reserva"];
-  leads.sort((a, b) => {
-    if (triggerLeadId) {
-      if (String(a.id) === String(triggerLeadId)) return -1;
-      if (String(b.id) === String(triggerLeadId)) return 1;
+
+  let leadsAIterar;
+  if (triggerLeadId) {
+    // Modo webhook: solo el lead que escribió
+    const soloTrigger = leads.find((l) => String(l.id) === String(triggerLeadId));
+    leadsAIterar = soloTrigger ? [soloTrigger] : [];
+    if (!soloTrigger) {
+      console.warn(`[Ciclo] Trigger lead ${triggerLeadId} no encontrado en el pipeline activo — skip`);
     }
-    return ORDEN_ETAPAS.indexOf(a.etapa_actual) - ORDEN_ETAPAS.indexOf(b.etapa_actual);
-  });
+  } else {
+    // Modo barrido: todos los leads, ordenados por etapa
+    leadsAIterar = [...leads].sort(
+      (a, b) => ORDEN_ETAPAS.indexOf(a.etapa_actual) - ORDEN_ETAPAS.indexOf(b.etapa_actual)
+    );
+  }
 
   reporte.leads_pre_filtrados  = 0;
   reporte.leads_a_procesar     = 0;
   reporte.contextos_sinteticos = 0;
   reporte.contextos_con_llm    = 0;
 
-  for (const lead of leads) {
+  for (const lead of leadsAIterar) {
     const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
 
     // Conteo por etapa — siempre, antes de cualquier filtro
