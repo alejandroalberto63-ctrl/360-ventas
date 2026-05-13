@@ -12,7 +12,7 @@ const { extraerContexto } = require("./agente_contexto");
 const { generarMensaje } = require("./agentes_etapa");
 const { revisarMensaje } = require("./agente_qa");
 const { evaluarLead } = require("./supervisor");
-const { llamarConImagen, transcribirAudio } = require("./openai_client");
+const { llamarConImagen, transcribirAudio, resetUsage, getUsage, calcularCostoUSD } = require("./openai_client");
 const kommo = require("../scripts/kommo");
 const evolution = require("../scripts/evolution");
 const config = require("../scripts/config");
@@ -54,10 +54,13 @@ async function ejecutarCiclo(triggerLeadId = null) {
   if (triggerLeadId) console.log(`[Trigger] Mensaje entrante → Lead ${triggerLeadId}`);
   console.log(`${"═".repeat(60)}\n`);
 
+  // Resetear contador de tokens al inicio de cada ciclo
+  resetUsage();
+
   const reporte = {
     timestamp: new Date().toISOString(),
     canal: config.whatsapp.numero,
-    trigger: triggerLeadId ? "mensaje_entrante" : "ciclo_programado",
+    trigger: triggerLeadId ? "mensaje_entrante" : "barrido_diario",
     leads_revisados: 0,
     mensajes_enviados: 0,
     mensajes_rechazados_qa: 0,
@@ -528,10 +531,21 @@ async function ejecutarCiclo(triggerLeadId = null) {
   }
 
   reporte.duracion_ms = Date.now() - inicio;
+  reporte.openai_usage = getUsage();
+  reporte.openai_costo_usd = calcularCostoUSD(reporte.openai_usage);
+
   console.log(`\n${"═".repeat(60)}`);
   console.log(`[Ciclo] ✓ Completado en ${reporte.duracion_ms}ms`);
   console.log(`[Ciclo] Enviados: ${reporte.mensajes_enviados} | Escalados: ${reporte.escalados_humano}`);
+  console.log(`[Ciclo] OpenAI: ${reporte.openai_usage.total_tokens} tokens | $${reporte.openai_costo_usd}`);
   console.log(`${"═".repeat(60)}\n`);
+
+  // Resumen ejecutivo por WhatsApp — SOLO en barrido diario completo (no en respuestas individuales)
+  if (!triggerLeadId) {
+    await enviarResumenEjecutivo(reporte).catch((err) =>
+      console.error("[ResumenEjecutivo] Error enviando:", err.message)
+    );
+  }
 
   return reporte;
 }
@@ -1064,6 +1078,75 @@ function preFiltroPorLogWa(lead) {
   if (horasDesdeBot >= 20) return { procesar: true, razon: "20h_pasadas" };
 
   return { procesar: false, razon: `anti_spam_log:${horasDesdeBot.toFixed(1)}h_sin_respuesta` };
+}
+
+/**
+ * Envía resumen ejecutivo del barrido diario al WhatsApp del dueño.
+ * Solo se llama cuando triggerLeadId === null (barrido completo, no webhook individual).
+ */
+async function enviarResumenEjecutivo(reporte) {
+  const WA_DUENO = process.env.WA_DUENO_360;
+  if (!WA_DUENO) {
+    console.warn("[ResumenEjecutivo] WA_DUENO_360 no configurado");
+    return;
+  }
+
+  const hora = new Date().toLocaleString("es-EC", {
+    timeZone: "America/Guayaquil",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  const uso = reporte.openai_usage || {};
+  const costo = reporte.openai_costo_usd ?? 0;
+  const duracionMin = reporte.duracion_ms ? (reporte.duracion_ms / 60000).toFixed(1) : "?";
+
+  // Detalle de cierres (leads que pasaron a perdido en este ciclo)
+  const cerrados = (reporte.detalle_acciones || []).filter(
+    (a) => a.nueva_etapa === "perdido" || a.razon === "hard_close_5_sin_respuesta"
+  ).length;
+
+  const lineas = [
+    `*📋 RESUMEN BARRIDO DIARIO*`,
+    `_${hora} · duración ${duracionMin} min_`,
+    ``,
+    `*━━━ GESTIÓN ━━━*`,
+    `🔍 Leads en embudo: *${reporte.leads_revisados}*`,
+    `⚡ Sin acción (anti-spam/espera): *${reporte.leads_pre_filtrados || 0}*`,
+    `🤖 Procesados con IA: *${reporte.leads_a_procesar || 0}*`,
+    ``,
+    `📤 Mensajes enviados: *${reporte.mensajes_enviados}*`,
+    `👤 Escalados a humano: *${reporte.escalados_humano}*`,
+    `🚪 Cerrados hoy: *${cerrados}*`,
+  ];
+
+  if ((reporte.mensajes_rechazados_qa || 0) > 0) {
+    lineas.push(`⚠️ Rechazados por QA: *${reporte.mensajes_rechazados_qa}*`);
+  }
+  if ((reporte.errores || []).length > 0) {
+    lineas.push(`❌ Errores: *${reporte.errores.length}* (ver logs)`);
+  }
+
+  lineas.push(``);
+  lineas.push(`*━━━ COSTO OPENAI ━━━*`);
+  lineas.push(`📥 Tokens entrada: ${(uso.prompt_tokens || 0).toLocaleString("es-EC")}`);
+  lineas.push(`📤 Tokens salida: ${(uso.completion_tokens || 0).toLocaleString("es-EC")}`);
+  lineas.push(`💵 Costo estimado: *$${costo.toFixed(4)}*`);
+
+  // Detalle de acciones enviadas (max 8 para no llenar el chat)
+  const enviados = (reporte.detalle_acciones || []).filter((a) => a.enviado);
+  if (enviados.length > 0) {
+    lineas.push(``);
+    lineas.push(`*━━━ MENSAJES ENVIADOS ━━━*`);
+    for (const a of enviados.slice(0, 8)) {
+      lineas.push(`   • ${(a.nombre || a.telefono || "?").substring(0, 20)} [${a.agente || "?"}]`);
+    }
+    if (enviados.length > 8) lineas.push(`   _...y ${enviados.length - 8} más_`);
+  }
+
+  const txt = lineas.join("\n");
+  await evolution.enviarMensaje(WA_DUENO, txt);
+  console.log(`[ResumenEjecutivo] ✓ Enviado a ${WA_DUENO}`);
 }
 
 function calcularHorasSinRespuesta(historial) {

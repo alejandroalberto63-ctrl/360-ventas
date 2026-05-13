@@ -7,6 +7,36 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MODEL = "gpt-4o";
 const BASE = "https://api.openai.com/v1/chat/completions";
 
+// ─── Contador de tokens por ciclo ─────────────────────────────────────────
+// Se resetea al inicio de cada barrido y acumula todos los usos de LLM.
+
+let _usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
+function resetUsage() {
+  _usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+}
+
+function getUsage() {
+  return { ..._usage };
+}
+
+/**
+ * Calcula costo estimado en USD para gpt-4o.
+ * Precios vigentes: $2.50/1M input · $10.00/1M output
+ */
+function calcularCostoUSD(usage) {
+  const input  = (usage.prompt_tokens     / 1_000_000) * 2.50;
+  const output = (usage.completion_tokens / 1_000_000) * 10.00;
+  return +(input + output).toFixed(5); // 5 decimales para ver centavos reales
+}
+
+function _acumularUsage(uso) {
+  if (!uso) return;
+  _usage.prompt_tokens     += uso.prompt_tokens     || 0;
+  _usage.completion_tokens += uso.completion_tokens || 0;
+  _usage.total_tokens      += uso.total_tokens      || 0;
+}
+
 /**
  * Llama a OpenAI con system prompt + user content
  * @param {string} systemPrompt
@@ -44,6 +74,7 @@ async function llamar(systemPrompt, userContent, opts = {}) {
   }
 
   const data = await res.json();
+  _acumularUsage(data.usage);
   return data.choices[0].message.content.trim();
 }
 
@@ -106,6 +137,7 @@ async function llamarConImagen(systemPrompt, textoPregunta, imagenBase64, mimeTy
   }
 
   const data = await res.json();
+  _acumularUsage(data.usage);
   const texto = data.choices[0].message.content.trim();
   try {
     return JSON.parse(texto);
@@ -155,4 +187,4 @@ async function transcribirAudio(base64Audio, mimeType = "audio/ogg", idioma = "e
   return (data.text || "").trim();
 }
 
-module.exports = { llamar, llamarJSON, llamarConImagen, transcribirAudio };
+module.exports = { llamar, llamarJSON, llamarConImagen, transcribirAudio, resetUsage, getUsage, calcularCostoUSD };
