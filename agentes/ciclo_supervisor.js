@@ -267,36 +267,28 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     const alertasCtx = lead.contexto?.alertas || [];
     const tonoCli = lead.contexto?.tono_cliente;
 
-    // Hard 0 (ANTI-SPAM): si el bot envió mensaje hace menos de 20 horas Y el cliente
-    // no respondió desde entonces → BLOQUEO. Esta validación es independiente del LLM
-    // supervisor y previene rachas de mensajes (bug histórico de no respetar Regla 2).
-    const VEINTE_HORAS_MS = 20 * 60 * 60 * 1000;
-    const ahora = Date.now();
-    const ultimoBotMsg = (lead.historial || [])
-      .filter((m) => m.role !== "lead")
-      .pop();
-    const ultimoClienteMsg = (lead.historial || [])
-      .filter((m) => m.role === "lead")
-      .pop();
-    if (ultimoBotMsg) {
-      const tsBot = new Date(ultimoBotMsg.timestamp).getTime();
-      const tsCli = ultimoClienteMsg ? new Date(ultimoClienteMsg.timestamp).getTime() : 0;
-      const msDesdeBot = ahora - tsBot;
-      const clienteRespondio = tsCli > tsBot;
-      // Excepciones: si el cliente respondió DESPUÉS del último mensaje del bot, sí se puede contestar
-      // O si es trigger por mensaje entrante (el cliente acaba de escribir)
-      const esTriggerLead = triggerLeadId && String(lead.id) === String(triggerLeadId);
-      if (msDesdeBot < VEINTE_HORAS_MS && !clienteRespondio && !esTriggerLead) {
-        const horasDesde = (msDesdeBot / 3600000).toFixed(1);
-        console.warn(
-          `[HARD-BLOCK] Lead ${lead.id} ⏱️ anti-spam — último bot hace ${horasDesde}h, cliente no respondió`
-        );
-        await kommo.appendLog(
-          accion.lead_id,
-          `[SISTEMA-BLOQUEO] anti_spam:bot_hace_${horasDesde}h_sin_respuesta_cliente`
-        );
-        reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_anti_spam" });
-        continue;
+    // Hard 0 (ANTI-SPAM): el barrido envía UN mensaje por lead por día.
+    // Si el bot ya envió un mensaje HOY (después de las 8:50 AM Ecuador) y el cliente
+    // no respondió desde entonces → BLOQUEO. Previene doble-envío si el cron se
+    // dispara más de una vez al día o si hay un webhook y un barrido solapados.
+    // El webhook (esTriggerLead) siempre pasa — el cliente acaba de escribir.
+    const esTriggerLead = triggerLeadId && String(lead.id) === String(triggerLeadId);
+    if (!esTriggerLead) {
+      const hoyEC = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" });
+      const inicioBarridoHoy = new Date(`${hoyEC}T08:50:00-05:00`).getTime();
+      const ultimoBotMsg = (lead.historial || []).filter((m) => m.role !== "lead").pop();
+      const ultimoClienteMsg = (lead.historial || []).filter((m) => m.role === "lead").pop();
+      if (ultimoBotMsg) {
+        const tsBot = new Date(ultimoBotMsg.timestamp).getTime();
+        const tsCli = ultimoClienteMsg ? new Date(ultimoClienteMsg.timestamp).getTime() : 0;
+        const botEnvioHoy = tsBot >= inicioBarridoHoy;
+        const clienteRespondioDesdeBot = tsCli > tsBot;
+        if (botEnvioHoy && !clienteRespondioDesdeBot) {
+          console.warn(`[HARD-BLOCK] Lead ${lead.id} ⏱️ ya gestionado hoy — cliente no respondió`);
+          await kommo.appendLog(accion.lead_id, `[SISTEMA-BLOQUEO] anti_spam:ya_gestionado_hoy`);
+          reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_ya_gestionado_hoy" });
+          continue;
+        }
       }
     }
 
@@ -1064,11 +1056,15 @@ function preFiltroPorLogWa(lead) {
   if (!ultimaBotTs) return { procesar: true, razon: "nunca_contactado" };
   if (clienteRespondioDesdeBot) return { procesar: true, razon: "cliente_respondio" };
 
-  const VEINTE_HORAS_MS = 20 * 60 * 60 * 1000;
-  const horasDesdeBot = (Date.now() - ultimaBotTs) / 3_600_000;
-  if (horasDesdeBot >= 20) return { procesar: true, razon: "20h_pasadas" };
+  // Regla: un seguimiento por día. Si el bot envió después de las 8:50 AM Ecuador de hoy
+  // y el cliente no respondió → ya se gestionó en el barrido de hoy, saltar.
+  const hoyEC = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" });
+  const inicioBarridoHoy = new Date(`${hoyEC}T08:50:00-05:00`).getTime();
+  if (ultimaBotTs >= inicioBarridoHoy) {
+    return { procesar: false, razon: "ya_gestionado_hoy" };
+  }
 
-  return { procesar: false, razon: `anti_spam_log:${horasDesdeBot.toFixed(1)}h_sin_respuesta` };
+  return { procesar: true, razon: "pendiente_seguimiento_diario" };
 }
 
 /**
