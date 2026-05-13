@@ -149,7 +149,13 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     }
 
     if (!lead.telefono) {
-      console.warn(`[Ciclo] Lead ${lead.id} sin teléfono — omitido`);
+      console.warn(`[Ciclo] Lead ${lead.id} sin teléfono — moviendo a perdido`);
+      try {
+        await kommo.moverEtapa(lead.id, "perdido");
+        await kommo.agregarNota(lead.id, "Lead cerrado automáticamente: sin número de teléfono en Kommo. No es posible gestionar por WhatsApp.");
+      } catch (errCierre) {
+        console.error(`[Ciclo] Error cerrando lead sin teléfono ${lead.id}:`, errCierre.message);
+      }
       continue;
     }
     reporte.leads_a_procesar++;
@@ -385,14 +391,32 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     }
 
     if (!mensajeAprobado) {
+      // Si fue un error técnico (OpenAI caído, rate limit) → solo alertar, no enviar nada.
+      // Si fue rechazo real del QA → intentar fallback seguro antes de escalar.
       const razonFinal = errorLoop || ultimaCorreccion || "sin razón registrada";
-      const tipoFalla = errorLoop ? `Error técnico (${intentosQA} intento${intentosQA > 1 ? "s" : ""})` : `QA rechazó ${intentosQA} intento${intentosQA > 1 ? "s" : ""}`;
-      const msg = `${tipoFalla}\nLead: ${lead.nombre || lead.telefono} (${lead.telefono})\nRazón: ${razonFinal}`;
-      await evolution.alertarCoordinador(msg);
-      await kommo.agregarNota(accion.lead_id, `Bot no pudo generar mensaje — ${tipoFalla.toLowerCase()}. Razón: ${razonFinal.substring(0, 100)}`);
-      resultadoAccion.escalado = true;
-      reporte.escalados_humano++;
-    } else {
+      const tipoFalla = errorLoop
+        ? `Error técnico (${intentosQA} intento${intentosQA > 1 ? "s" : ""})`
+        : `QA rechazó ${intentosQA} intento${intentosQA > 1 ? "s" : ""}`;
+
+      if (!errorLoop) {
+        // Fallback seguro: mensaje genérico que siempre pasa QA
+        // Cumple: ≤35 palabras, 1 pregunta en negrita, 0 emojis, sin precio, sin servicios
+        const nombreLead = lead.nombre?.split(" ")[0] || null;
+        const saludoNombre = nombreLead ? `Hola ${nombreLead}, ` : "Hola, ";
+        mensajeAprobado = `${saludoNombre}te escribimos de 360 Eventos. Tenemos el VideoBooth 360 para hacer tu evento memorable. **¿Tienes un evento próximo en mente?**`;
+        console.warn(`[QA] ⚠️ Usando mensaje fallback seguro para lead ${lead.id}`);
+        await kommo.agregarNota(accion.lead_id, `QA no aprobó en ${intentosQA} intentos — se usó mensaje fallback seguro. Razón: ${razonFinal.substring(0, 100)}`);
+      } else {
+        // Error técnico → escalar, no enviar
+        const msg = `${tipoFalla}\nLead: ${lead.nombre || lead.telefono} (${lead.telefono})\nRazón: ${razonFinal}`;
+        await evolution.alertarCoordinador(msg);
+        await kommo.agregarNota(accion.lead_id, `Bot no pudo generar mensaje — ${tipoFalla.toLowerCase()}. Razón: ${razonFinal.substring(0, 100)}`);
+        resultadoAccion.escalado = true;
+        reporte.escalados_humano++;
+      }
+    }
+
+    if (mensajeAprobado) {
       // ─── VALIDACIONES HARD POST-QA (red de seguridad final) ───────────────
       const violacion = validarMensajeFinal(mensajeAprobado);
       if (violacion) {
