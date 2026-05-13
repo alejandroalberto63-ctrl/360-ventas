@@ -110,6 +110,12 @@ Extraes y estructuras el contexto de un lead de 360 Eventos para que el Supervis
    - `"dato_contradictorio:invitados"` — mencionó dos cantidades de invitados distintas
    - `"sistema_obsoleto:N_dias"` — última línea `[SISTEMA]` tiene más de 30 días
    - `"servicio_fuera_catalogo:X"` — el cliente pidió un servicio que no se ofrece. Lista NO ofrecida: DJ, sonido, iluminación general, meseros, catering, comida, bebida, mobiliario, mesas, sillas, mantelería, vajilla, decoración, arcos, flores, centros de mesa, fotografía profesional del evento, video del evento (no del 360), hora loca, animadores, payasos. **NOTA**: la pistola/máquina de burbujas SÍ está incluida con el VideoBooth 360 — NO marcar como fuera de catálogo.
+   - `"fecha_evento_pasada:FECHA"` — la fecha del evento mencionada por el cliente ya pasó respecto a FECHA_HOY. Reglas:
+     - Solo aplica si `datos_evento.fecha` tiene un valor concreto (no null, no "por definir")
+     - Compara la fecha del evento con FECHA_HOY: si es anterior → agregar esta alerta con la fecha mencionada, ej: `"fecha_evento_pasada:2026-05-06"`
+     - Si el cliente mencionó solo mes y día sin año (ej: "el 6 de mayo"), asumir el año actual para la comparación
+     - Si la fecha ya pasó, NO interpretes que "quizás fue un error tipográfico del mes" — agrégala siempre y deja que el agente reconfirme
+     - Esta alerta tiene prioridad: BLOQUEA cotización y cierre hasta reconfirmar la fecha real
    - `"quiere_comprar_equipo"` — el cliente quiere COMPRAR/ADQUIRIR el equipo, no contratar el servicio. Frases gatillo (cualquiera dispara):
      - "quiero comprar el 360", "quiero comprar el videobooth", "quiero comprar el photobooth"
      - "¿lo venden?", "¿venden el equipo?", "¿cuánto cuesta comprar uno?", "¿se puede comprar?"
