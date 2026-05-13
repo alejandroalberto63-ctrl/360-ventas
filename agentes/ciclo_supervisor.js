@@ -5,7 +5,8 @@
  * o inmediatamente cuando llega un mensaje al número 593980243197.
  *
  * Solo opera sobre el pipeline 360 en Kommo.
- * Solo usa la instancia Evolution del número 593980243197.
+ * Canal ventas (clientes):  593980243197 — instancia 360eventos
+ * Canal sistema (alertas):  593987841594 — instancia marketa_system
  */
 
 const { extraerContexto } = require("./agente_contexto");
@@ -1145,8 +1146,8 @@ async function enviarResumenEjecutivo(reporte) {
   }
 
   const txt = lineas.join("\n");
-  await evolution.enviarMensaje(WA_DUENO, txt);
-  console.log(`[ResumenEjecutivo] ✓ Enviado a ${WA_DUENO}`);
+  await evolution.enviarSistema(WA_DUENO, txt);
+  console.log(`[ResumenEjecutivo] ✓ Enviado desde marketa_system a ${WA_DUENO}`);
 }
 
 function calcularHorasSinRespuesta(historial) {

@@ -4,12 +4,20 @@
  */
 
 module.exports = {
-  // ─── WhatsApp 360 Eventos ────────────────────────────────────────────────
+  // ─── WhatsApp 360 Eventos (canal de ventas con clientes) ─────────────────
   whatsapp: {
     numero: "593980243197",
     instance: "360eventos",
     apiUrl: process.env.EVOLUTION_API_URL || "https://marketa-evolution-api.hoqkyr.easypanel.host",
     apiKey: process.env.EVOLUTION_API_KEY || "C7A48B3A1DEC-43C7-BE25-66431EE6F47B",
+  },
+
+  // ─── WhatsApp Marketa System (notificaciones internas del sistema) ────────
+  // Este número NUNCA habla con clientes — solo envía alertas, reportes y
+  // resúmenes ejecutivos al coordinador y al dueño.
+  sistema: {
+    numero: "593987841594",
+    instance: process.env.MARKETA_SYSTEM_INSTANCE || "marketa_system",
   },
 
   // ─── Kommo CRM ───────────────────────────────────────────────────────────

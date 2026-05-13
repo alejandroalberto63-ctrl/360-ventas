@@ -1,16 +1,25 @@
 /**
  * Adaptador Evolution API — Canal 360 Eventos
  *
- * Solo usa la instancia del número 593980243197.
- * No toca ninguna otra instancia.
+ * Instancia de ventas (593980243197): habla con clientes.
+ * Instancia sistema  (593987841594): notificaciones internas — nunca habla con clientes.
  */
 
 const config = require("./config");
 
 const BASE = config.whatsapp.apiUrl;
+
+// ─── Instancia canal ventas (cliente) ────────────────────────────────────────
 const INSTANCE = config.whatsapp.instance;
 const HEADERS = {
   apikey: config.whatsapp.apiKey,
+  "Content-Type": "application/json",
+};
+
+// ─── Instancia Marketa System (notificaciones internas) ──────────────────────
+const SISTEMA_INSTANCE = config.sistema.instance; // marketa_system
+const SISTEMA_HEADERS = {
+  apikey: config.whatsapp.apiKey, // misma API key, distinta instancia
   "Content-Type": "application/json",
 };
 
@@ -99,23 +108,58 @@ async function verificarConexion() {
 }
 
 /**
+ * Envía notificación interna desde el número Marketa System (593987841594).
+ * NUNCA usar para hablar con clientes.
+ * @param {string} telefono - Número destino (coordinador, dueño)
+ * @param {string} texto - Mensaje a enviar
+ */
+async function enviarSistema(telefono, texto) {
+  const telefonoLimpio = String(telefono).replace(/\D/g, "");
+  const url = `${BASE}/message/sendText/${SISTEMA_INSTANCE}`;
+
+  const body = {
+    number: telefonoLimpio,
+    text: texto,
+    delay: 800,
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: SISTEMA_HEADERS,
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn(`[Sistema] Error enviando a ${telefonoLimpio}: ${res.status} — ${err}`);
+      return null;
+    }
+
+    const data = await res.json();
+    console.log(`[Sistema] ✓ Notificación enviada desde marketa_system a ${telefonoLimpio} | ID: ${data?.key?.id}`);
+    return data;
+  } catch (err) {
+    console.warn(`[Sistema] No se pudo notificar a ${telefonoLimpio}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Envía alerta de escalado a Erika (coordinadora) y Alberto (dueño)
+ * Usa el número Marketa System — no el canal de ventas.
  */
 async function alertarCoordinador(mensaje) {
   const texto = `⚠️ ALERTA 360 EVENTOS\n\n${mensaje}`;
   const destinos = [config.supervisor.waCoordinador, config.supervisor.waDueno].filter(Boolean);
 
   if (destinos.length === 0) {
-    console.warn("[Evolution] WA_COORDINADOR_360 / WA_DUENO_360 no configurados");
+    console.warn("[Sistema] WA_COORDINADOR_360 / WA_DUENO_360 no configurados");
     return;
   }
 
   for (const numero of destinos) {
-    try {
-      await enviarMensaje(numero, texto);
-    } catch (err) {
-      console.warn(`[Evolution] No se pudo alertar a ${numero}: ${err.message}`);
-    }
+    await enviarSistema(numero, texto);
   }
 }
 
@@ -273,6 +317,7 @@ async function enviarVideo(telefono, tipoEvento) {
 
 module.exports = {
   enviarMensaje,
+  enviarSistema,
   enviarVideo,
   resolverTipoVideo,
   CATALOGO_VIDEOS,
