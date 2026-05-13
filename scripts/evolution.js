@@ -108,39 +108,58 @@ async function verificarConexion() {
 }
 
 /**
- * Envía notificación interna desde el número Marketa System (593987841594).
- * NUNCA usar para hablar con clientes.
+ * Envía notificación interna.
+ * Intenta primero desde marketa_system (593987841594).
+ * Si esa instancia no existe o falla, hace fallback a 360eventos con prefijo [🔔].
+ * NUNCA usar para hablar con clientes — solo coordinador y dueño.
  * @param {string} telefono - Número destino (coordinador, dueño)
  * @param {string} texto - Mensaje a enviar
  */
 async function enviarSistema(telefono, texto) {
   const telefonoLimpio = String(telefono).replace(/\D/g, "");
-  const url = `${BASE}/message/sendText/${SISTEMA_INSTANCE}`;
 
-  const body = {
-    number: telefonoLimpio,
-    text: texto,
-    delay: 800,
-  };
-
+  // ── Intento 1: marketa_system ────────────────────────────────────────────
   try {
+    const url = `${BASE}/message/sendText/${SISTEMA_INSTANCE}`;
     const res = await fetch(url, {
       method: "POST",
       headers: SISTEMA_HEADERS,
-      body: JSON.stringify(body),
+      body: JSON.stringify({ number: telefonoLimpio, text: texto, delay: 800 }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      console.log(`[Sistema] ✓ Notificación enviada desde marketa_system a ${telefonoLimpio} | ID: ${data?.key?.id}`);
+      return data;
+    }
+
+    const errBody = await res.text();
+    console.warn(`[Sistema] marketa_system falló (${res.status}) — usando fallback 360eventos. ${errBody}`);
+  } catch (err) {
+    console.warn(`[Sistema] marketa_system no disponible — usando fallback 360eventos. ${err.message}`);
+  }
+
+  // ── Fallback: 360eventos (solo para internos — coordinador/dueño) ────────
+  try {
+    const url = `${BASE}/message/sendText/${INSTANCE}`;
+    const textoFallback = `[🔔 SISTEMA]\n${texto}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: HEADERS,
+      body: JSON.stringify({ number: telefonoLimpio, text: textoFallback, delay: 800 }),
     });
 
     if (!res.ok) {
       const err = await res.text();
-      console.warn(`[Sistema] Error enviando a ${telefonoLimpio}: ${res.status} — ${err}`);
+      console.warn(`[Sistema] Fallback 360eventos también falló: ${res.status} — ${err}`);
       return null;
     }
 
     const data = await res.json();
-    console.log(`[Sistema] ✓ Notificación enviada desde marketa_system a ${telefonoLimpio} | ID: ${data?.key?.id}`);
+    console.log(`[Sistema] ✓ Notificación enviada vía fallback 360eventos a ${telefonoLimpio} | ID: ${data?.key?.id}`);
     return data;
   } catch (err) {
-    console.warn(`[Sistema] No se pudo notificar a ${telefonoLimpio}: ${err.message}`);
+    console.warn(`[Sistema] No se pudo notificar por ningún canal: ${err.message}`);
     return null;
   }
 }
