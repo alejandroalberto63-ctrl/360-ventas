@@ -207,6 +207,9 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       alertas_previas:            contexto.alertas,
       contexto_sintetico:         !!contexto._sintetico,
     };
+    // Enriquecer el lead original in-place para que todas las referencias
+    // posteriores a lead.historial, lead.contexto, etc. funcionen correctamente.
+    Object.assign(lead, leadEnriquecido);
 
     // PASO 5: Supervisor evalúa SOLO este lead → UNA decisión
     let accion;

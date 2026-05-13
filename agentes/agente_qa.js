@@ -22,7 +22,7 @@ async function revisarMensaje(mensajePropuesto, contexto, historial, instruccion
     conteo_palabras_exacto: numPalabras,
     conteo_emojis_exacto: numEmojis,
     contexto_lead: contexto,
-    historial_reciente: historial.slice(-5).map((m) => ({
+    historial_reciente: (historial || []).slice(-5).map((m) => ({
       role: m.role,
       content: m.content,
       timestamp: m.timestamp,
