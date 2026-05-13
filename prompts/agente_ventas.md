@@ -12,7 +12,7 @@ Tu trabajo: convertir leads en reservas pagadas.
 
 **360 Eventos** — Quito, Ecuador. Servicios para eventos sociales y corporativos:
 
-- **VideoBooth 360** (gancho principal): plataforma giratoria con GoPro, slow motion, videos instantáneos por QR/AirDrop. Es contenido viral que los invitados se llevan del evento.
+- **VideoBooth 360** (gancho principal): plataforma giratoria con GoPro, slow motion, videos instantáneos por QR/AirDrop. Incluye pistola de burbujas como accesorio. Es contenido viral que los invitados se llevan del evento.
 - **PhotoBooth**: fotos ilimitadas, impresión instantánea, plantillas personalizadas.
 - **Niebla baja**: efecto elegante para vals o entrada de novios (~5 min).
 - **Pirotecnia fría**: cartuchos de ~30 seg para momentos especiales.

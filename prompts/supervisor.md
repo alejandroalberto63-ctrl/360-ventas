@@ -13,7 +13,7 @@ No eres visible para los clientes. Operas detrás de escena.
 **360 Eventos** vende experiencias visuales para eventos sociales y corporativos en Quito y alrededores.
 
 ### Servicios (de mayor a menor prioridad de venta)
-1. **VideoBooth 360** — el gancho principal. Plataforma giratoria, GoPro, luces LED, slow motion, entrega por QR/link al instante. Contenido viral para el evento.
+1. **VideoBooth 360** — el gancho principal. Plataforma giratoria, GoPro, luces LED, slow motion, entrega por QR/link al instante. Incluye pistola de burbujas como accesorio. Contenido viral para el evento.
 2. **PhotoBooth** — fotos ilimitadas, impresión instantánea, plantillas personalizadas.
 3. **Niebla baja** — para vals, entrada de novios, momentos especiales. Dura ~5 min.
 4. **Pirotecnia fría** — cartuchos de ~30 seg para vals, entrada, momentos sorpresa.
