@@ -17,6 +17,43 @@
 const config = require("./config");
 
 const BASE = `https://${config.kommo.subdominio}.kommo.com/api/v4`;
+
+// ─── Mapeos de valores del bot → enum IDs de Kommo ────────────────────────
+
+const TIPO_EVENTO_ENUM = {
+  boda:              850953,
+  matrimonio:        850953,
+  quinceanos:        850955,
+  quinceañera:       850955,
+  "15_anos":         850955,
+  "quinceañeros":    850955,
+  cumpleanos:        850957,
+  cumpleaños:        850957,
+  birthday:          850957,
+  dulces_16:         850959,
+  "16_anos":         850959,
+  "18_anos":         850961,
+  grado_escuela:     850963,
+  grado_colegio:     850965,
+  graduacion:        850967,
+  grado_universidad: 850967,
+  corporativo:       850969,
+  empresa:           850969,
+  corporate:         850969,
+};
+
+const SERVICIOS_ENUM = {
+  videobooth:  850943,
+  video_360:   850943,
+  "360":       850943,
+  photobooth:  850945,
+  fotos:       850945,
+  niebla:      850947,
+  niebla_baja: 850947,
+  pirotecnia:  850949,
+  pirotecnia_2:850949,
+  pirotecnia_4:850951,
+};
 const headers = () => ({
   Authorization: `Bearer ${config.kommo.accessToken}`,
   "Content-Type": "application/json",
@@ -233,6 +270,84 @@ async function actualizarCampos(leadId, campos) {
 }
 
 /**
+ * Actualiza automáticamente los custom fields 360 desde el contexto del agente.
+ * Escribe: Tipo de Evento, Servicios de Interés, y el price nativo (presupuesto cotizado).
+ * Solo sobreescribe si el contexto tiene datos nuevos — no borra lo que ya había.
+ *
+ * @param {number} leadId
+ * @param {object} ctx  — objeto context devuelto por agente_contexto
+ */
+async function actualizarCustomFields360(leadId, ctx) {
+  if (!ctx) return;
+  const updates = { id: Number(leadId) };
+  const cfv = [];
+
+  // Helper: normaliza texto a clave del mapa (minúsculas, sin tildes, guiones por espacios)
+  const norm = (s) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/\s+/g, "_")
+      .trim();
+
+  // ── 1. Tipo de Evento ────────────────────────────────────────────────────
+  const tipoRaw = ctx.datos_evento?.tipo || null;
+  if (tipoRaw) {
+    const enumId = TIPO_EVENTO_ENUM[norm(tipoRaw)] ?? TIPO_EVENTO_ENUM[tipoRaw.toLowerCase()];
+    if (enumId) cfv.push({ field_id: 1157833, values: [{ enum_id: enumId }] });
+  }
+
+  // ── 2. Servicios de Interés ──────────────────────────────────────────────
+  const servicioRaw = ctx.datos_evento?.servicio_interes;
+  const candidatos = [];
+  if (servicioRaw) candidatos.push(servicioRaw);
+  if (ctx.servicios_interes && Array.isArray(ctx.servicios_interes)) {
+    candidatos.push(...ctx.servicios_interes);
+  }
+  const enumsServicios = [];
+  for (const s of candidatos) {
+    const enumId = SERVICIOS_ENUM[norm(s)] ?? SERVICIOS_ENUM[s.toLowerCase()];
+    if (enumId && !enumsServicios.includes(enumId)) enumsServicios.push(enumId);
+  }
+  // Por defecto, si hay cualquier interés sin servicio explícito, asumimos Videobooth
+  if (enumsServicios.length === 0 && (tipoRaw || servicioRaw)) {
+    enumsServicios.push(850943); // Videobooth
+  }
+  if (enumsServicios.length > 0) {
+    cfv.push({ field_id: 1157831, values: enumsServicios.map((id) => ({ enum_id: id })) });
+  }
+
+  // ── 3. Precio cotizado → campo nativo price del lead ────────────────────
+  const precio = ctx.comercial?.precio_cotizado ?? null;
+  if (precio && Number(precio) > 0) {
+    updates.price = Number(precio);
+  }
+
+  if (cfv.length > 0) updates.custom_fields_values = cfv;
+  if (Object.keys(updates).length <= 1) return; // nada que actualizar
+
+  try {
+    const res = await fetch(`${BASE}/leads`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify([updates]),
+    });
+    if (!res.ok) {
+      console.warn(`[Kommo] actualizarCustomFields360 ${leadId}: ${res.status}`);
+    } else {
+      const partes = [];
+      if (tipoRaw) partes.push(`tipo=${tipoRaw}`);
+      if (enumsServicios.length) partes.push(`servicios=[${enumsServicios.join(",")}]`);
+      if (updates.price) partes.push(`price=$${updates.price}`);
+      console.log(`[Kommo] ✓ Custom fields 360 actualizados lead ${leadId}: ${partes.join(" | ")}`);
+    }
+  } catch (err) {
+    console.warn(`[Kommo] Error actualizarCustomFields360 ${leadId}:`, err.message);
+  }
+}
+
+/**
  * Actualiza el nombre del lead (cuando sabemos el nombre del cliente)
  */
 async function actualizarNombre(leadId, nombre) {
@@ -324,6 +439,7 @@ module.exports = {
   crearLead,
   moverEtapa,
   actualizarCampos,
+  actualizarCustomFields360,
   actualizarNombre,
   agregarNota,
   appendLog,

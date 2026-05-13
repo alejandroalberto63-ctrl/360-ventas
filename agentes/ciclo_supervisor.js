@@ -469,6 +469,14 @@ async function ejecutarCiclo(triggerLeadId = null) {
           await kommo.moverEtapa(accion.lead_id, accion.nueva_etapa);
         }
 
+        // Actualizar custom fields 360 con lo que el contexto conoce del lead
+        // (tipo_evento, servicios_interes, precio_cotizado → price nativo)
+        try {
+          await kommo.actualizarCustomFields360(accion.lead_id, lead.contexto);
+        } catch (errCf) {
+          console.warn(`[CFields] Error actualizando custom fields lead ${accion.lead_id}:`, errCf.message);
+        }
+
         // Registrar en log de conversación WA
         await kommo.appendLog(
           accion.lead_id,
