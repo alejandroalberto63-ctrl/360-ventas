@@ -11,7 +11,7 @@
 const { extraerContexto } = require("./agente_contexto");
 const { generarMensaje } = require("./agentes_etapa");
 const { revisarMensaje } = require("./agente_qa");
-const { evaluarEmbudo } = require("./supervisor");
+const { evaluarLead } = require("./supervisor");
 const { llamarConImagen, transcribirAudio } = require("./openai_client");
 const kommo = require("../scripts/kommo");
 const evolution = require("../scripts/evolution");
@@ -95,156 +95,129 @@ async function ejecutarCiclo(triggerLeadId = null) {
     return reporte;
   }
 
-  // PASO 2-PRE: Pre-filtro barato usando solo log_wa (sin API calls).
-  // Elimina leads bloqueados por anti-spam ANTES de gastar en Evolution/OpenAI.
-  // El pre-filtro es una aproximación rápida; HARD-0 (historial real) sigue activo como red final.
-  const leadsAProcessar = [];
-  const leadsPreFiltrados = [];
+  // ─── PIPELINE LEAD-POR-LEAD ─────────────────────────────────────────────────
+  // Orden: trigger lead primero, luego por etapa (contacto_inicial → seguimiento → negociacion)
+  const ORDEN_ETAPAS = ["nuevo", "contacto_inicial", "seguimiento", "negociacion", "reserva"];
+  leads.sort((a, b) => {
+    if (triggerLeadId) {
+      if (String(a.id) === String(triggerLeadId)) return -1;
+      if (String(b.id) === String(triggerLeadId)) return 1;
+    }
+    return ORDEN_ETAPAS.indexOf(a.etapa_actual) - ORDEN_ETAPAS.indexOf(b.etapa_actual);
+  });
+
+  reporte.leads_pre_filtrados  = 0;
+  reporte.leads_a_procesar     = 0;
+  reporte.contextos_sinteticos = 0;
+  reporte.contextos_con_llm    = 0;
 
   for (const lead of leads) {
     const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
-    if (esTrigger) {
-      leadsAProcessar.push(lead);
+
+    // PASO 2: Pre-filtro barato — solo log_wa, cero llamadas API
+    if (!esTrigger) {
+      const filtro = preFiltroPorLogWa(lead);
+      if (!filtro.procesar) {
+        reporte.leads_pre_filtrados++;
+        continue;
+      }
+    }
+
+    if (!lead.telefono) {
+      console.warn(`[Ciclo] Lead ${lead.id} sin teléfono — omitido`);
       continue;
     }
-    const filtro = preFiltroPorLogWa(lead);
-    if (filtro.procesar) {
-      leadsAProcessar.push(lead);
-    } else {
-      leadsPreFiltrados.push({ id: lead.id, razon: filtro.razon });
+    reporte.leads_a_procesar++;
+
+    // PASO 3: Historial WhatsApp (Evolution API)
+    let historial;
+    try {
+      historial = await evolution.obtenerHistorial(lead.telefono, 30);
+    } catch (err) {
+      console.error(`[Evolution] Error historial lead ${lead.id}:`, err.message);
+      reporte.errores.push({ etapa: "historial", lead_id: lead.id, error: err.message });
+      continue;
     }
-  }
 
-  reporte.leads_pre_filtrados = leadsPreFiltrados.length;
-  reporte.leads_a_procesar = leadsAProcessar.length;
-  console.log(
-    `[PreFiltro] ⚡ ${leadsAProcessar.length} a procesar / ${leadsPreFiltrados.length} omitidos (anti-spam o en espera)`
-  );
+    // PASO 4: Contexto — sintético si no hay msgs nuevos, LLM si los hay
+    const ultimoSistema = parsearUltimaLineaSistema(lead.log_wa);
+    const ultimoCliente  = historial.filter((m) => m.role === "lead").pop();
+    const sistemaTs      = ultimoSistema ? new Date(ultimoSistema.timestamp) : null;
+    const clienteTs      = ultimoCliente  ? new Date(ultimoCliente.timestamp)  : null;
+    const TREINTA_DIAS   = 30 * 24 * 3_600_000;
+    const sistemaObsoleto = sistemaTs && Date.now() - sistemaTs.getTime() > TREINTA_DIAS;
+    const puedeSaltar = !esTrigger && ultimoSistema && sistemaTs && !sistemaObsoleto &&
+                        (!clienteTs || clienteTs <= sistemaTs);
 
-  if (leadsAProcessar.length === 0) {
-    console.log("[Supervisor] Sin leads que requieran acción. Ciclo completado.");
-    reporte.duracion_ms = Date.now() - inicio;
-    return reporte;
-  }
+    let contexto;
+    try {
+      if (puedeSaltar) {
+        contexto = construirContextoSintetico(ultimoSistema, lead, historial);
+        reporte.contextos_sinteticos++;
+        console.log(`[Contexto] Lead ${lead.id} ⚡ sintético`);
+      } else {
+        contexto = await extraerContexto({ ...lead }, historial);
+        reporte.contextos_con_llm++;
+      }
+    } catch (err) {
+      console.error(`[Contexto] Error lead ${lead.id}:`, err.message);
+      reporte.errores.push({ etapa: "contexto", lead_id: lead.id, error: err.message });
+      continue;
+    }
 
-  // PASO 2: Enriquecer SOLO los leads que pasaron el pre-filtro — lotes de 5
-  const leadsEnriquecidos = [];
-  const LOTE = 5;
+    const leadEnriquecido = {
+      ...lead,
+      historial,
+      contexto,
+      historial_resumen:          contexto.resumen_conversacion,
+      tiempo_sin_respuesta_horas: calcularHorasSinRespuesta(historial),
+      ultimo_mensaje_cliente:     contexto.ultimo_mensaje_cliente,
+      objeciones_detectadas:      contexto.objeciones_detectadas,
+      alertas_previas:            contexto.alertas,
+      contexto_sintetico:         !!contexto._sintetico,
+    };
 
-  for (let i = 0; i < leadsAProcessar.length; i += LOTE) {
-    const lote = leads.slice(i, i + LOTE);
-    const resultadosLote = await Promise.allSettled(
-      lote.map(async (lead) => {
-        // (lead viene de leadsAProcessar — ya pasó el pre-filtro)
-        // El teléfono ya viene en el lead (obtenido en batch por kommo.obtenerLeadsActivos)
-        const telefono = lead.telefono;
-        if (!telefono) return null;
+    // PASO 5: Supervisor evalúa SOLO este lead → UNA decisión
+    let accion;
+    try {
+      const decision = await evaluarLead(leadEnriquecido);
+      accion = {
+        lead_id:            lead.id,
+        nombre:             lead.nombre,
+        etapa_actual:       lead.etapa_actual,
+        prioridad:          decision.prioridad          || "media",
+        accion:             decision.accion,
+        agente_destino:     decision.agente_destino,
+        instruccion_agente: decision.instruccion_agente || "",
+        razon_decision:     decision.razon_decision     || "",
+        nueva_etapa:        decision.nueva_etapa        || null,
+        alerta:             decision.alerta             || null,
+      };
+      console.log(`\n[Lead ${lead.id}] ${lead.nombre || lead.telefono} | ${accion.accion} → ${accion.agente_destino || "—"} | ${accion.prioridad}`);
+    } catch (err) {
+      console.error(`[Supervisor] Error lead ${lead.id}:`, err.message);
+      reporte.errores.push({ etapa: "supervisor", lead_id: lead.id, error: err.message });
+      continue;
+    }
 
-        // Historial de mensajes desde Evolution API
-        const historial = await evolution.obtenerHistorial(telefono, 30);
-
-        // ⚡ Optimización: si hay línea [SISTEMA] previa Y el cliente NO escribió desde
-        // entonces, construimos contexto sintético sin llamar a OpenAI. La línea [SISTEMA]
-        // tiene el estado autoritativo (nivel_negociacion, seguimientos, precio, espera).
-        // El forceTrigger = lead disparado por mensaje entrante → siempre llamar al LLM.
-        // Caducidad: si [SISTEMA] tiene > 30 días → siempre llamar al LLM (estado puede estar obsoleto).
-        const ultimoSistema = parsearUltimaLineaSistema(lead.log_wa);
-        const ultimoCliente = historial.filter((m) => m.role === "lead").pop();
-        const sistemaTs = ultimoSistema ? new Date(ultimoSistema.timestamp) : null;
-        const clienteTs = ultimoCliente ? new Date(ultimoCliente.timestamp) : null;
-        const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
-
-        const TREINTA_DIAS_MS = 30 * 24 * 60 * 60 * 1000;
-        const sistemaObsoleto = sistemaTs && (Date.now() - sistemaTs.getTime()) > TREINTA_DIAS_MS;
-
-        const puedeSaltar =
-          !esTrigger &&
-          ultimoSistema &&
-          sistemaTs &&
-          !sistemaObsoleto &&
-          (!clienteTs || clienteTs <= sistemaTs);
-
-        let contexto;
-        if (puedeSaltar) {
-          contexto = construirContextoSintetico(ultimoSistema, lead, historial);
-          console.log(`[Contexto] Lead ${lead.id} ⚡ sintético (sin mensajes nuevos)`);
-        } else {
-          contexto = await extraerContexto({ ...lead, telefono }, historial);
-        }
-
-        return {
-          ...lead,
-          historial,
-          contexto,
-          historial_resumen: contexto.resumen_conversacion,
-          tiempo_sin_respuesta_horas: calcularHorasSinRespuesta(historial),
-          ultimo_mensaje_cliente: contexto.ultimo_mensaje_cliente,
-          objeciones_detectadas: contexto.objeciones_detectadas,
-          alertas_previas: contexto.alertas,
-          contexto_sintetico: !!contexto._sintetico,
-        };
-      })
-    );
-    leadsEnriquecidos.push(...resultadosLote);
-
-    // Pausa entre lotes para respetar rate limits
-    if (i + LOTE < leadsAProcessar.length) await new Promise((r) => setTimeout(r, 500));
-  }
-
-  const leadsValidos = leadsEnriquecidos
-    .filter((r) => r.status === "fulfilled" && r.value !== null)
-    .map((r) => r.value);
-
-  const sinteticos = leadsValidos.filter((l) => l.contexto_sintetico).length;
-  const conLLM = leadsValidos.length - sinteticos;
-  reporte.contextos_sinteticos = sinteticos;
-  reporte.contextos_con_llm = conLLM;
-  console.log(
-    `[Supervisor] Leads con contexto: ${leadsValidos.length} (${conLLM} con LLM, ${sinteticos} sintéticos ⚡)`
-  );
-
-  // PASO 3: Supervisor evalúa el embudo — sin historial raw (muy pesado)
-  // Solo enviamos los datos procesados para no superar el context window de GPT-4o
-  const leadsParaSupervisor = leadsValidos.map(({ historial, ...resto }) => resto);
-
-  let plan;
-  try {
-    plan = await evaluarEmbudo(leadsParaSupervisor);
-    console.log(`\n[Plan] ${plan.resumen_ciclo}`);
-    console.log(`[Plan] Acciones: ${plan.acciones?.length} | En espera: ${plan.leads_en_espera?.length}`);
-  } catch (err) {
-    console.error("[Supervisor] Error evaluando embudo:", err.message);
-    reporte.errores.push({ etapa: "supervisor", error: err.message });
-    return reporte;
-  }
-
-  // Procesar alertas críticas
-  for (const alerta of plan.alertas_criticas || []) {
-    if (alerta.tipo === "escalado") {
-      const lead = leadsValidos.find((l) => String(l.id) === String(alerta.lead_id));
-      const msg = `Lead: ${lead?.nombre || alerta.lead_id} (${lead?.telefono})\nMotivo: ${alerta.descripcion}`;
+    // Alerta crítica que viene junto a la decisión del supervisor
+    if (accion.alerta?.tipo === "escalado") {
+      const msg = `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\nMotivo: ${accion.alerta.descripcion}`;
       await evolution.alertarCoordinador(msg);
-      await kommo.moverEtapa(alerta.lead_id, "seguimiento"); // Marcar para revisión humana
-      await kommo.agregarNota(alerta.lead_id, `Alerta crítica: ${alerta.descripcion}`);
+      await kommo.agregarNota(lead.id, `Alerta crítica: ${accion.alerta.descripcion}`);
       reporte.escalados_humano++;
     }
-  }
 
-  // PASO 4: Ejecutar cada acción del plan
-  for (const accion of plan.acciones || []) {
-    const lead = leadsValidos.find((l) => String(l.id) === String(accion.lead_id));
-    if (!lead) continue;
-
-    console.log(`\n[Acción] ${accion.nombre || lead.telefono} | ${accion.etapa_actual} | ${accion.prioridad}`);
+    console.log(`\n[Acción] ${lead.nombre || lead.telefono} | ${accion.etapa_actual} | ${accion.prioridad}`);
 
     const resultadoAccion = {
-      lead_id: accion.lead_id,
-      nombre: accion.nombre,
-      telefono: lead.telefono,
+      lead_id:   accion.lead_id,
+      nombre:    accion.nombre,
+      telefono:  lead.telefono,
       prioridad: accion.prioridad,
-      agente: accion.agente_destino,
-      enviado: false,
-      escalado: false,
+      agente:    accion.agente_destino,
+      enviado:   false,
+      escalado:  false,
     };
 
     // Escalar a humano directamente
