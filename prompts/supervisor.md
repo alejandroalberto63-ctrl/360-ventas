@@ -75,8 +75,8 @@ El barrido corre una vez al día a las 9 AM. Si el cliente no respondió desde e
 | 2 | 1 | Seguimiento — recordar valor, diferencial frente a competencia |
 | 3 | 2 | Seguimiento — urgencia de disponibilidad de fecha |
 | 4 | 3 | Seguimiento — oferta o gancho diferente (niebla, combo) |
-| 5 | 4 | Último intento — cierre digno, dejar puerta abierta |
-| 6+ | 5 | Sin respuesta en 5 días → `nueva_etapa: "perdido"`. Sin más mensajes. |
+| 5 | 4 | Mensaje de cierre — cálido, sin pregunta, dejar puerta abierta. Instruye al agente: usar el mensaje de cierre aprobado con el nombre real del lead. |
+| 6+ | 5 | Sin respuesta en 5 días → `accion: "esperar"`, `nueva_etapa: "perdido"`. Sin mensaje. |
 
 **Regla práctica:** si `num_seguimientos_enviados >= 5` y el cliente no respondió → `accion: "esperar"`, `nueva_etapa: "perdido"`.
 

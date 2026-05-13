@@ -38,12 +38,18 @@ Cambia el ángulo — gancho diferente o detalle no mencionado antes (slow motio
 
 > "Sigue de pie tu interés en el 360 para tu evento? Si es no, también me ayuda saberlo para liberar la fecha. **¿Continuamos o lo dejamos por ahora?**"
 
-### Seguimiento 5 (120h / 5 días sin respuesta) — cierre digno
-No presionar. Dejar puerta abierta. Después de este mensaje el lead se cierra automáticamente como `perdido`.
+### Seguimiento 5 (día 5 sin respuesta) — cierre digno
 
-> "Este es mi último mensaje para no insistir más. Si en otro momento quieres retomar el tema, aquí estaremos. **¡Mucho éxito con tu evento!**"
+No presionar. Dejar puerta abierta. Sin pregunta al final — es un cierre, no una venta.
+Después de este mensaje el supervisor mueve el lead a `perdido` automáticamente. No se envía nada más.
 
-**Después del 5to seguimiento sin respuesta → el supervisor mueve el lead a `perdido` automáticamente. No se envía nada más.**
+> "Hola [Nombre] 👋 Entiendo que por ahora no es el momento. Quedamos atentos para cuando tengas un evento en mente — con gusto te ayudamos. ¡Que todo te vaya excelente! 🙌"
+
+**Reglas para este mensaje:**
+- Reemplaza `[Nombre]` por el nombre real del lead
+- NO incluyas pregunta al final — es la excepción a la regla general
+- Tono cálido, sin reproche, sin mencionar cuántos mensajes enviaste
+- Si conoces el tipo de evento (boda, quinceaños, etc.) puedes mencionarlo: "…para cuando tengas tu boda en mente…"
 
 ---
 
