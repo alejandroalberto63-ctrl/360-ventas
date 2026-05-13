@@ -68,6 +68,13 @@ async function ejecutarCiclo(triggerLeadId = null) {
     escalados_humano: 0,
     errores: [],
     detalle_acciones: [],
+    por_etapa: {
+      nuevo:            { total: 0, enviados: 0 },
+      contacto_inicial: { total: 0, enviados: 0 },
+      seguimiento:      { total: 0, enviados: 0 },
+      negociacion:      { total: 0, enviados: 0 },
+      reserva:          { total: 0, enviados: 0 },
+    },
   };
 
   // Verificar conexión WhatsApp
@@ -117,6 +124,10 @@ async function ejecutarCiclo(triggerLeadId = null) {
 
   for (const lead of leads) {
     const esTrigger = triggerLeadId && String(lead.id) === String(triggerLeadId);
+
+    // Conteo por etapa — siempre, antes de cualquier filtro
+    const etapaKey = lead.etapa_actual || "nuevo";
+    if (reporte.por_etapa[etapaKey] !== undefined) reporte.por_etapa[etapaKey].total++;
 
     // PASO 2: Pre-filtro barato — solo log_wa, cero llamadas API
     if (!esTrigger) {
@@ -521,6 +532,7 @@ async function ejecutarCiclo(triggerLeadId = null) {
 
         resultadoAccion.enviado = true;
         reporte.mensajes_enviados++;
+        if (reporte.por_etapa[etapaKey] !== undefined) reporte.por_etapa[etapaKey].enviados++;
       } catch (err) {
         console.error(`[WhatsApp] Error enviando:`, err.message);
         resultadoAccion.error = err.message;
@@ -1098,52 +1110,48 @@ async function enviarResumenEjecutivo(reporte) {
     timeStyle: "short",
   });
 
-  const uso = reporte.openai_usage || {};
+  const uso   = reporte.openai_usage || {};
   const costo = reporte.openai_costo_usd ?? 0;
   const duracionMin = reporte.duracion_ms ? (reporte.duracion_ms / 60000).toFixed(1) : "?";
 
-  // Detalle de cierres (leads que pasaron a perdido en este ciclo)
   const cerrados = (reporte.detalle_acciones || []).filter(
     (a) => a.nueva_etapa === "perdido" || a.razon === "hard_close_5_sin_respuesta"
   ).length;
 
+  const pe = reporte.por_etapa || {};
+  const fmt = (e) => {
+    const s = pe[e] || { total: 0, enviados: 0 };
+    return `${s.enviados}/${s.total}`;
+  };
+
   const lineas = [
-    `*📋 RESUMEN BARRIDO DIARIO*`,
-    `_${hora} · duración ${duracionMin} min_`,
+    `*📋 RESUMEN BARRIDO DIARIO 360*`,
+    `_${hora} · ${duracionMin} min_`,
     ``,
-    `*━━━ GESTIÓN ━━━*`,
-    `🔍 Leads en embudo: *${reporte.leads_revisados}*`,
-    `⚡ Sin acción (anti-spam/espera): *${reporte.leads_pre_filtrados || 0}*`,
-    `🤖 Procesados con IA: *${reporte.leads_a_procesar || 0}*`,
-    ``,
-    `📤 Mensajes enviados: *${reporte.mensajes_enviados}*`,
-    `👤 Escalados a humano: *${reporte.escalados_humano}*`,
-    `🚪 Cerrados hoy: *${cerrados}*`,
+    `*━━━ EMBUDO ━━━*`,
+    `📥 Leads entrantes:    ${fmt("nuevo")}`,
+    `🤝 Contacto inicial:   ${fmt("contacto_inicial")}`,
+    `📲 Seguimiento:        ${fmt("seguimiento")}`,
+    `💬 Negociación:        ${fmt("negociacion")}`,
+    `✅ Reserva:            ${fmt("reserva")}`,
+    `🚪 Cerrados hoy:       *${cerrados}*`,
   ];
 
+  if ((reporte.escalados_humano || 0) > 0) {
+    lineas.push(`👤 Escalados:          *${reporte.escalados_humano}*`);
+  }
   if ((reporte.mensajes_rechazados_qa || 0) > 0) {
-    lineas.push(`⚠️ Rechazados por QA: *${reporte.mensajes_rechazados_qa}*`);
+    lineas.push(`⚠️ Rechazados QA:      *${reporte.mensajes_rechazados_qa}*`);
   }
   if ((reporte.errores || []).length > 0) {
-    lineas.push(`❌ Errores: *${reporte.errores.length}* (ver logs)`);
+    lineas.push(`❌ Errores:            *${reporte.errores.length}* (ver logs)`);
   }
 
   lineas.push(``);
   lineas.push(`*━━━ COSTO OPENAI ━━━*`);
-  lineas.push(`📥 Tokens entrada: ${(uso.prompt_tokens || 0).toLocaleString("es-EC")}`);
-  lineas.push(`📤 Tokens salida: ${(uso.completion_tokens || 0).toLocaleString("es-EC")}`);
-  lineas.push(`💵 Costo estimado: *$${costo.toFixed(4)}*`);
-
-  // Detalle de acciones enviadas (max 8 para no llenar el chat)
-  const enviados = (reporte.detalle_acciones || []).filter((a) => a.enviado);
-  if (enviados.length > 0) {
-    lineas.push(``);
-    lineas.push(`*━━━ MENSAJES ENVIADOS ━━━*`);
-    for (const a of enviados.slice(0, 8)) {
-      lineas.push(`   • ${(a.nombre || a.telefono || "?").substring(0, 20)} [${a.agente || "?"}]`);
-    }
-    if (enviados.length > 8) lineas.push(`   _...y ${enviados.length - 8} más_`);
-  }
+  lineas.push(`📥 Tokens entrada:  ${(uso.prompt_tokens     || 0).toLocaleString("es-EC")}`);
+  lineas.push(`📤 Tokens salida:   ${(uso.completion_tokens || 0).toLocaleString("es-EC")}`);
+  lineas.push(`💵 Costo estimado:  *$${costo.toFixed(4)}*`);
 
   const txt = lineas.join("\n");
   await evolution.enviarSistema(WA_DUENO, txt);
