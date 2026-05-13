@@ -7,8 +7,10 @@
 
 require("dotenv").config();
 const express = require("express");
-const { ejecutarCiclo, procesarMensajeEntrante } = require("../agentes/ciclo_supervisor");
+const { ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante } = require("../agentes/ciclo_supervisor");
+const { clasificarEtapaAutomatica } = require("../agentes/clasificador_etapa");
 const { generarReporteTexto } = require("./reportes/reporte_gerencial");
+const kommo = require("./kommo");
 const evolution = require("./evolution");
 const config = require("./config");
 
@@ -18,17 +20,18 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const WA_DUENO = process.env.WA_DUENO_360;
 
-let cicloEnCurso = false;
 let ultimoReporte = null;
 
 // ─── Health check ─────────────────────────────────────────────────────────
 
 app.get("/status", (_, res) => {
+  const activos = getLeadsEnCurso();
   res.json({
     sistema: "360 Eventos",
     canal_whatsapp: config.whatsapp.numero,
     pipeline_kommo: config.kommo.pipelineId,
-    estado: cicloEnCurso ? "ejecutando_ciclo" : "listo",
+    estado: activos > 0 ? "ejecutando_ciclo" : "listo",
+    ciclos_activos: activos,
     ultimo_ciclo: ultimoReporte?.timestamp || null,
     ultimo_enviados: ultimoReporte?.mensajes_enviados || 0,
     ultimo_escalados: ultimoReporte?.escalados_humano || 0,
@@ -36,27 +39,22 @@ app.get("/status", (_, res) => {
 });
 
 // ─── Trigger ciclo desde n8n ──────────────────────────────────────────────
-// GET ?lead_id=X   → ciclo inmediato para ese lead (webhook entrante)
-// GET ?barrido=true → ciclo completo + resumen ejecutivo (barrido diario 9 AM)
-// Sin params       → ciclo normal cada 5 min, sin resumen
+// POST ?lead_id=X   → ciclo inmediato para ese lead (lock por lead)
+// POST ?barrido=true → ciclo completo + resumen ejecutivo (barrido diario 9 AM)
+// Sin params        → ciclo normal, sin resumen
 
 app.post("/ciclo", async (req, res) => {
-  const triggerLeadId = req.query.lead_id  || null;
-  const enviarResumen = req.query.barrido  === "true";
+  const triggerLeadId = req.query.lead_id || null;
+  const enviarResumen = req.query.barrido === "true";
 
-  if (cicloEnCurso) {
-    return res.json({ status: "en_curso", mensaje: "Ya hay un ciclo ejecutándose" });
-  }
-
+  // El lock es por lead — responde inmediatamente y procesa en paralelo
   res.json({ status: "iniciado", trigger: triggerLeadId || (enviarResumen ? "barrido_diario" : "programado") });
 
-  cicloEnCurso = true;
   try {
-    ultimoReporte = await ejecutarCiclo(triggerLeadId, { enviarResumen });
+    const reporte = await ejecutarCicloConLock(triggerLeadId, { enviarResumen });
+    if (reporte) ultimoReporte = reporte;
   } catch (err) {
     console.error("[Servidor] Error en ciclo:", err.message);
-  } finally {
-    cicloEnCurso = false;
   }
 });
 
@@ -122,6 +120,66 @@ app.post("/reporte-gerencial", async (req, res) => {
     console.log(`[Reporte] ✓ Enviado a ${WA_DUENO}`);
   } catch (err) {
     console.error("[Reporte] Error:", err.message);
+  }
+});
+
+// ─── Debug por lead — requiere x-admin-token ─────────────────────────────────
+// GET /debug/lead/:leadId
+// Muestra el estado real del lead: etapa actual, etapa correcta, señales detectadas.
+
+app.get("/debug/lead/:leadId", async (req, res) => {
+  if (req.headers["x-admin-token"] !== process.env.ADMIN_TOKEN) {
+    return res.sendStatus(401);
+  }
+
+  const { leadId } = req.params;
+  try {
+    const lead = await kommo.obtenerLead(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead no encontrado" });
+
+    const log = lead.log_wa || "";
+
+    // Detectar señales desde el log
+    function scanLog(keyword) {
+      return log.split("\n").some((l) => l.includes("[BOT→") && l.includes(keyword));
+    }
+    const cuentaBancariaEnviada = scanLog("Erika Díaz") || scanLog("MARKETAS") || log.split("\n").some((l) => l.includes("[BOT→") && /\d{10,}/.test(l));
+
+    let botFound = false;
+    const clienteRespondioAlBot = log.split("\n").some((l) => {
+      if (l.includes("[BOT→")) { botFound = true; return false; }
+      return botFound && l.includes("[CLIENTE]");
+    });
+
+    // Calcular último mensaje de cada tipo
+    const lineas = log.split("\n").filter(Boolean);
+    const ultimoCliente = [...lineas].reverse().find((l) => l.includes("[CLIENTE]") || l.includes("[IN]")) || null;
+    const ultimoBot = [...lineas].reverse().find((l) => l.includes("[BOT→")) || null;
+
+    const etapaCorrecta = clasificarEtapaAutomatica({
+      clienteRespondioAlBot,
+      cuentaBancariaEnviada,
+      etapaActual: lead.etapa_actual,
+    });
+
+    res.json({
+      lead_id:                    Number(leadId),
+      nombre:                     lead.nombre || null,
+      telefono:                   lead.telefono || null,
+      etapa_actual:               lead.etapa_actual,
+      etapa_correcta:             etapaCorrecta,
+      mal_clasificado:            etapaCorrecta !== lead.etapa_actual,
+      senales: {
+        cliente_respondio_al_bot: clienteRespondioAlBot,
+        cuenta_bancaria_enviada:  cuentaBancariaEnviada,
+      },
+      ultimo_mensaje_cliente:     ultimoCliente,
+      ultimo_mensaje_bot:         ultimoBot,
+      pausar_ia:                  lead.pausar_ia || false,
+    });
+  } catch (err) {
+    console.error("[Debug] Error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

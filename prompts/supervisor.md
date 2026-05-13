@@ -48,13 +48,13 @@ Bodas, quinceaños, cumpleaños, graduaciones, eventos corporativos, fiestas pri
 
 | Etapa interna | Nombre en Kommo | Qué significa |
 |--------------|----------------|---------------|
-| `nuevo` | Incoming leads | Llegó, nadie lo atendió aún |
-| `contacto_inicial` | Contacto inicial | Se inició conversación |
-| `seguimiento` | SEGUIMIENTO | Enviamos propuesta, esperando respuesta |
-| `negociacion` | Negociación | Tiene objeciones, está evaluando |
-| `reserva` | Reserva | Pagó el 25% verificado — evento agendado |
-| `ganado` | Leads ganados | El evento ya se realizó (marca humano) |
-| `perdido` | Leads perdidos | No se cerró |
+| `nuevo` | Incoming leads | Llegó, nadie lo atendió aún. Se trata igual que `contacto_inicial`. |
+| `contacto_inicial` | Contacto inicial | El bot envió mensajes pero el cliente **nunca respondió** al bot. Permanece aquí durante todo el ciclo de 5 seguimientos mientras el cliente no reaccione. |
+| `seguimiento` | SEGUIMIENTO | El cliente respondió al bot al menos una vez (mostró señales de vida). Se mantiene aquí mientras **no se hayan enviado datos bancarios** para el anticipo. |
+| `negociacion` | Negociación | Se enviaron los **datos bancarios** al cliente para el anticipo. Independiente de si ya pagó o no. |
+| `reserva` | Reserva | Pagó el 25% verificado — evento agendado. |
+| `ganado` | Leads ganados | El evento ya se realizó (marca humano). |
+| `perdido` | Leads perdidos | No se cerró. |
 
 ---
 
@@ -208,3 +208,30 @@ Si hay alerta crítica (escalado, oportunidad):
 19. **Cliente quiere comprar el equipo** (`alertas` incluye `quiere_comprar_equipo`):
     - `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "perdido"`.
     - Instrucción al agente: "El cliente quiere COMPRAR el equipo, no contratar el servicio. Responde con máximo 2 oraciones: (1) aclarar que no vendemos equipos, solo prestamos el servicio para eventos, (2) desearle éxito. Tono amable, sin preguntar nada más. El lead se cerrará tras este mensaje."
+
+---
+
+## Transiciones automáticas de etapa
+
+Estas reglas son **OBLIGATORIAS**. Se ejecutan en el mismo ciclo en que se detecta la condición, sin esperar confirmación humana. Tienen prioridad sobre el flujo normal cuando aplican.
+
+20. **`contacto_inicial` → `seguimiento`** (`alertas` incluye `"cliente_respondio_al_bot"`):
+    - El cliente respondió al bot. Ya no es un contacto inactivo — hay interacción real.
+    - Agrega `nueva_etapa: "seguimiento"` en este mismo ciclo.
+    - Evalúa y responde el lead como si ya estuviera en `seguimiento` (calificar evento, obtener datos, avanzar hacia precio).
+
+21. **`seguimiento` → `negociacion`** (cuando en este ciclo instruyes al agente a enviar datos bancarios por primera vez):
+    - Siempre que la `instruccion_agente` incluya enviar datos de cuenta, nombre del titular (Erika Díaz Yánez o MARKETAS S.A.S.) o número de cuenta para que el cliente haga la transferencia del anticipo:
+    - Establece `nueva_etapa: "negociacion"` en tu output **simultáneamente**.
+    - El lead pasa a `negociacion` en el mismo ciclo en que se envían los datos bancarios.
+
+22. **`seguimiento` → `negociacion`** por reclasificación (`alertas` incluye `"cuenta_bancaria_enviada"` y `etapa_actual = "seguimiento"`):
+    - Los datos bancarios ya fueron enviados en un ciclo anterior — el lead debe estar en `negociacion`.
+    - `nueva_etapa: "negociacion"`. **No reenvíes los datos bancarios** — el cliente ya los tiene.
+    - Evalúa el contexto: si el cliente respondió tras recibir los datos, continúa el seguimiento de pago. Si no hay respuesta, aplica ciclo de seguimiento normal.
+
+23. **Reclasificación de `negociacion` sin datos bancarios** (`etapa_actual = "negociacion"` y `alertas` NO incluye `"cuenta_bancaria_enviada"`):
+    - Lead mal clasificado — en negociación pero nunca se enviaron datos bancarios.
+    - Si hay interacción del cliente (`ultimo_mensaje_cliente` no vacío) → `nueva_etapa: "seguimiento"`.
+    - Si no hay interacción del cliente → `nueva_etapa: "contacto_inicial"`.
+    - Continúa el flujo según la nueva etapa asignada.

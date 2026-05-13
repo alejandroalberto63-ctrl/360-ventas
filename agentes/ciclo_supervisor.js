@@ -13,6 +13,7 @@ const { extraerContexto } = require("./agente_contexto");
 const { generarMensaje } = require("./agentes_etapa");
 const { revisarMensaje } = require("./agente_qa");
 const { evaluarLead } = require("./supervisor");
+const { clasificarEtapaAutomatica, extraerSenalesDesdeContexto, mensajeContieneDatosBancarios } = require("./clasificador_etapa");
 const { llamarConImagen, transcribirAudio, resetUsage, getUsage, calcularCostoUSD } = require("./openai_client");
 const kommo = require("../scripts/kommo");
 const evolution = require("../scripts/evolution");
@@ -20,11 +21,54 @@ const config = require("../scripts/config");
 
 const MAX_REINTENTOS_QA = config.supervisor.maxReintentosQA;
 
+// ─── Deduplicación de mensajes entrantes ──────────────────────────────────────
+// Previene procesar el mismo messageId dos veces si Evolution reenvía el evento.
+const _mensajesProcesados = new Map();
+const _TTL_DEDUP_MS = 6 * 60 * 60 * 1000; // 6 horas
+
+function _yaProcesado(messageId) {
+  if (!messageId) return false;
+  const ahora = Date.now();
+  const ultimo = _mensajesProcesados.get(messageId);
+  if (ultimo && ahora - ultimo < _TTL_DEDUP_MS) return true;
+  _mensajesProcesados.set(messageId, ahora);
+  // Limpieza periódica para evitar memory leak en procesos largos
+  if (_mensajesProcesados.size > 5000) {
+    for (const [id, ts] of _mensajesProcesados) {
+      if (ahora - ts > _TTL_DEDUP_MS) _mensajesProcesados.delete(id);
+    }
+  }
+  return false;
+}
+
 // Debounce: cuando un cliente envía varios mensajes seguidos, esperamos
 // a que termine de escribir antes de disparar el ciclo. Cada mensaje nuevo
 // reinicia el contador. Después de DEBOUNCE_MS sin nuevos mensajes → ciclo.
 const DEBOUNCE_MS = 12000; // 12 segundos
 const pendingTriggers = new Map(); // leadId -> { timer, lastMessageAt }
+
+// ─── Lock por lead ────────────────────────────────────────────────────────────
+// Reemplaza el flag global cicloEnCurso. Permite que múltiples leads corran
+// en paralelo mientras evita que el MISMO lead se procese dos veces a la vez.
+const ciclosEnCursoPorLead = new Set();
+
+function getLeadsEnCurso() {
+  return ciclosEnCursoPorLead.size;
+}
+
+async function ejecutarCicloConLock(triggerLeadId = null, opts = {}) {
+  const key = triggerLeadId ? String(triggerLeadId) : "__barrido__";
+  if (ciclosEnCursoPorLead.has(key)) {
+    console.log(`[Lock] ${key} ya tiene ciclo activo — ignorando duplicado`);
+    return null;
+  }
+  ciclosEnCursoPorLead.add(key);
+  try {
+    return await ejecutarCiclo(triggerLeadId, opts);
+  } finally {
+    ciclosEnCursoPorLead.delete(key);
+  }
+}
 
 function programarCicloDebounced(leadId) {
   // Si ya había un timer pendiente para este lead, cancélalo
@@ -35,7 +79,7 @@ function programarCicloDebounced(leadId) {
     pendingTriggers.delete(String(leadId));
     console.log(`[Debounce] Disparando ciclo para lead ${leadId} (12s sin mensajes nuevos)`);
     try {
-      await ejecutarCiclo(leadId);
+      await ejecutarCicloConLock(leadId);
     } catch (err) {
       console.error(`[Debounce] Error ejecutando ciclo para lead ${leadId}:`, err.message);
     }
@@ -211,6 +255,26 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     // posteriores a lead.historial, lead.contexto, etc. funcionen correctamente.
     Object.assign(lead, leadEnriquecido);
 
+    // ─── CLASIFICACIÓN DETERMINÍSTICA DE ETAPA ─────────────────────────────
+    // Antes de pasar al supervisor: corregir la etapa si el lead está mal clasificado.
+    // El supervisor recibe la etapa ya corregida y se enfoca solo en el mensaje.
+    const senalesEtapa = extraerSenalesDesdeContexto(contexto, lead.etapa_actual);
+    const etapaCorrecta = clasificarEtapaAutomatica(senalesEtapa);
+    if (etapaCorrecta !== lead.etapa_actual) {
+      console.log(`[Clasificador] Lead ${lead.id}: ${lead.etapa_actual} → ${etapaCorrecta}`);
+      try {
+        await kommo.moverEtapa(lead.id, etapaCorrecta);
+        await kommo.appendLog(
+          lead.id,
+          `[SISTEMA] etapa_anterior=${lead.etapa_actual} | nueva_etapa=${etapaCorrecta} | motivo=Reclasificación determinística automática`
+        );
+        lead.etapa_actual = etapaCorrecta;
+        reporte.por_etapa[etapaCorrecta] = reporte.por_etapa[etapaCorrecta] || { total: 0, enviados: 0 };
+      } catch (errClasif) {
+        console.error(`[Clasificador] Error reclasificando lead ${lead.id}:`, errClasif.message);
+      }
+    }
+
     // PASO 5: Supervisor evalúa SOLO este lead → UNA decisión
     let accion;
     try {
@@ -271,6 +335,10 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       if (accion.nueva_etapa && accion.nueva_etapa !== lead.etapa_actual) {
         try {
           await kommo.moverEtapa(accion.lead_id, accion.nueva_etapa);
+          await kommo.appendLog(
+            accion.lead_id,
+            `[SISTEMA] etapa_anterior=${lead.etapa_actual} | nueva_etapa=${accion.nueva_etapa} | motivo=${accion.razon_decision?.substring(0, 120) || "supervisor:esperar"}`
+          );
           console.log(`[Esperar] Lead ${accion.lead_id} movido a "${accion.nueva_etapa}"`);
         } catch (err) {
           console.error(`[Esperar] Error moviendo etapa lead ${accion.lead_id}:`, err.message);
@@ -451,6 +519,16 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         continue;
       }
 
+      // Red de seguridad: si el mensaje aprobado contiene datos bancarios pero el
+      // supervisor no seteó nueva_etapa=negociacion, lo corregimos aquí.
+      if (mensajeContieneDatosBancarios(mensajeAprobado)) {
+        const etapaDestino = accion.nueva_etapa || lead.etapa_actual;
+        if (etapaDestino !== "negociacion") {
+          console.log(`[Clasificador] Override: mensaje con datos bancarios → negociacion`);
+          accion.nueva_etapa = "negociacion";
+        }
+      }
+
       // PASO 7: Enviar por WhatsApp (número fijo: 593980243197)
       try {
         await evolution.enviarMensaje(lead.telefono, mensajeAprobado);
@@ -459,6 +537,10 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         // Mover etapa si el supervisor indicó cambio
         if (accion.nueva_etapa && accion.nueva_etapa !== lead.etapa_actual) {
           await kommo.moverEtapa(accion.lead_id, accion.nueva_etapa);
+          await kommo.appendLog(
+            accion.lead_id,
+            `[SISTEMA] etapa_anterior=${lead.etapa_actual} | nueva_etapa=${accion.nueva_etapa} | motivo=${accion.razon_decision?.substring(0, 120) || "supervisor:accion"}`
+          );
         }
 
         // Actualizar custom fields 360 con lo que el contexto conoce del lead
@@ -517,13 +599,21 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
           const precio = ctx.comercial?.precio_cotizado ?? "null";
           const etapaFinal = accion.nueva_etapa || lead.etapa_actual;
           const esp = ctx.espera_indicada;
+          // cta: cuenta bancaria enviada. Persiste de ciclo en ciclo.
+          // Se activa si ya estaba marcada antes O si el mensaje aprobado incluye datos bancarios.
+          const ctaAntes = ctx.comercial?.cuenta_bancaria_enviada === true;
+          const ctaEnEsteCiclo =
+            mensajeAprobado.includes("Erika Díaz") ||
+            mensajeAprobado.includes("MARKETAS") ||
+            /\d{10,}/.test(mensajeAprobado);
+          const ctaFinal = ctaAntes || ctaEnEsteCiclo;
           const espera = esp?.tiene_espera
             ? `${esp.tipo}:${esp.proxima_fecha_contacto || "?"}${esp.confirmacion_enviada ? "" : ":pendiente_confirmar"}`
             : "null";
 
           await kommo.appendLog(
             accion.lead_id,
-            `[SISTEMA] etapa:${etapaFinal} | seg:${segActual} | neg:${nivelNeg} | precio:${precio} | espera:${espera}`
+            `[SISTEMA] etapa:${etapaFinal} | seg:${segActual} | neg:${nivelNeg} | precio:${precio} | espera:${espera} | cta:${ctaFinal ? "1" : "0"}`
           );
         } catch (errSistema) {
           console.warn(`[SISTEMA log] No se pudo escribir línea de estado para lead ${accion.lead_id}:`, errSistema.message);
@@ -595,6 +685,12 @@ async function procesarMensajeEntrante(payload) {
 
   const messageKey = payload?.data?.key;
   const msgId = messageKey?.id;
+
+  // Deduplicación — Evolution puede reenviar el mismo evento (actualizaciones de estado)
+  if (_yaProcesado(msgId)) {
+    console.log(`[Dedup] Mensaje ${msgId} ya procesado — ignorando`);
+    return;
+  }
   const message = payload?.data?.message || {};
 
   const textoMensaje = message.conversation || message.extendedTextMessage?.text || null;
@@ -795,6 +891,10 @@ Responde SOLO este JSON:
   try {
     if (lead.etapa_actual !== "reserva") {
       await kommo.moverEtapa(lead.id, "reserva");
+      await kommo.appendLog(
+        lead.id,
+        `[SISTEMA] etapa_anterior=${lead.etapa_actual} | nueva_etapa=reserva | motivo=Comprobante de pago verificado automáticamente`
+      );
     }
 
     if (montoCoincide) {
@@ -922,8 +1022,8 @@ function validarMensajeFinal(mensaje) {
 
 /**
  * Extrae la última línea [SISTEMA] del log_wa de Kommo.
- * Formato esperado: "2026-05-11T10:00 [SISTEMA] etapa:X | seg:N | neg:M | precio:P | espera:E"
- * @returns {object|null} { timestamp, etapa, seg, neg, precio, espera } o null si no hay
+ * Formato esperado: "2026-05-11T10:00 [SISTEMA] etapa:X | seg:N | neg:M | precio:P | espera:E | cta:0"
+ * @returns {object|null} { timestamp, etapa, seg, neg, precio, espera, cta } o null si no hay
  */
 function parsearUltimaLineaSistema(logWa) {
   if (!logWa) return null;
@@ -948,6 +1048,55 @@ function parsearUltimaLineaSistema(logWa) {
  * Construye un contexto sintético desde la línea [SISTEMA] cuando no hay mensajes
  * nuevos del cliente — evita una llamada a OpenAI sin perder estado crítico.
  */
+/**
+ * Detecta si el bot ya envió datos bancarios reales en el historial de Kommo.
+ * Busca en líneas [BOT→] del log_wa: nombre del titular o número de cuenta.
+ */
+function detectarCuentaBancariaEnLog(logWa) {
+  if (!logWa) return false;
+  for (const line of logWa.split("\n")) {
+    if (!line.includes("[BOT→")) continue;
+    if (
+      line.includes("Erika Díaz") ||
+      line.includes("MARKETAS") ||
+      /\d{10,}/.test(line)  // número de cuenta bancaria (10+ dígitos)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Detecta si el cliente respondió al bot al menos una vez.
+ * Usa log_wa (historial Kommo) como fuente principal; historial de Evolution como fallback.
+ * Solo relevante cuando la etapa es contacto_inicial.
+ */
+function detectarClienteRespondioAlBot(logWa, historial) {
+  if (logWa) {
+    let botFound = false;
+    for (const line of logWa.split("\n")) {
+      if (!line.trim()) continue;
+      if (line.includes("[BOT→")) {
+        botFound = true;
+      } else if (botFound && line.includes("[CLIENTE]")) {
+        return true;
+      }
+    }
+    return false;
+  }
+  // Fallback: Evolution historial
+  let botFound = false;
+  for (const msg of historial) {
+    if (msg.role !== "lead") {
+      botFound = true;
+    } else if (botFound) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function construirContextoSintetico(sistemaData, lead, historial) {
   const ultimoCliente = historial.filter((m) => m.role === "lead").pop();
   const ultimoBot = historial.filter((m) => m.role !== "lead").pop();
@@ -976,6 +1125,21 @@ function construirContextoSintetico(sistemaData, lead, historial) {
     : Number(sistemaData.precio);
   const nivelNeg = Number(sistemaData.neg ?? 0);
   const numSeg = Number(sistemaData.seg ?? 0);
+  const etapaActual = sistemaData.etapa || lead.etapa_actual;
+
+  // Detección de señales de etapa automáticas.
+  // cta en [SISTEMA] es fuente de verdad si ya existe (más rápido que escanear todo el log).
+  // Fallback: escanear log_wa línea a línea.
+  const cuentaBancariaEnviada =
+    sistemaData.cta === "1" || detectarCuentaBancariaEnLog(lead.log_wa);
+  const clienteRespondioAlBot =
+    etapaActual === "contacto_inicial"
+      ? detectarClienteRespondioAlBot(lead.log_wa, historial)
+      : false;
+
+  const alertasSinteticas = [];
+  if (cuentaBancariaEnviada) alertasSinteticas.push("cuenta_bancaria_enviada");
+  if (clienteRespondioAlBot) alertasSinteticas.push("cliente_respondio_al_bot");
 
   const resumen = "Sin mensajes nuevos del cliente desde el último ciclo. Estado cargado desde memoria persistente [SISTEMA].";
 
@@ -983,7 +1147,7 @@ function construirContextoSintetico(sistemaData, lead, historial) {
     lead_id: lead.id,
     nombre: lead.nombre,
     telefono: lead.telefono,
-    etapa_actual: sistemaData.etapa || lead.etapa_actual,
+    etapa_actual: etapaActual,
     datos_evento: {
       tipo: lead.tipo_evento?.[0] || null,
       fecha: null,
@@ -1001,6 +1165,7 @@ function construirContextoSintetico(sistemaData, lead, historial) {
       nivel_negociacion_actual: nivelNeg,
       anticipo_solicitado: false,
       anticipo_confirmado: false,
+      cuenta_bancaria_enviada: cuentaBancariaEnviada,
     },
     conversacion: {
       ultimo_mensaje_cliente: ultimoCliente?.content || "",
@@ -1014,7 +1179,7 @@ function construirContextoSintetico(sistemaData, lead, historial) {
     },
     espera_indicada: espera,
     siguiente_accion_recomendada: "Evaluar si corresponde seguimiento según tiempo transcurrido y estado de espera.",
-    alertas: [],
+    alertas: alertasSinteticas,
     // Aliases planos para compatibilidad
     resumen_conversacion: resumen,
     ultimo_mensaje_cliente: ultimoCliente?.content || "",
@@ -1194,4 +1359,4 @@ function calcularHorasSinRespuesta(historial) {
 // obtenerTelefonoLead eliminado — el teléfono ahora viene en batch
 // desde kommo.obtenerLeadsActivos() usando obtenerTelefonosPorContactos()
 
-module.exports = { ejecutarCiclo, procesarMensajeEntrante };
+module.exports = { ejecutarCiclo, ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante };
