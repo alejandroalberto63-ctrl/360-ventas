@@ -71,7 +71,7 @@ El barrido corre una vez al día a las 9 AM. Si el cliente no respondió desde e
 
 | Día | `num_seguimientos_enviados` | Acción |
 |-----|----------------------------|--------|
-| 1 | 0 | Primer contacto — presentar el 360 con contexto del evento |
+| 1 | 0 | Primer contacto — aplica a etapas `nuevo` Y `contacto_inicial`. Presentar el 360 con contexto del evento. Mover a `contacto_inicial` si estaba en `nuevo`. |
 | 2 | 1 | Seguimiento — recordar valor, diferencial frente a competencia |
 | 3 | 2 | Seguimiento — urgencia de disponibilidad de fecha |
 | 4 | 3 | Seguimiento — oferta o gancho diferente (niebla, combo) |
@@ -164,7 +164,10 @@ Si hay alerta crítica (escalado, oportunidad):
 5. Si el lead tiene fecha de evento en menos de 7 días → `prioridad: "urgente"` siempre.
 6. **Cliente dijo que no le interesa** ("no me interesa", "ya no", "conseguí otro", "no gracias", "cancela") → `accion: "esperar"`, `nueva_etapa: "perdido"`. Sin mensaje.
 7. **Etapa `reserva`** → `accion: "esperar"`, `razon_decision: "Lead en Reserva — esperando que ocurra el evento"`. Sin mensajes automáticos.
-8. **Etapa `nuevo`** (Incoming leads, nunca contactado) → `accion: "esperar"`, `razon_decision: "Lead nuevo — esperamos que el cliente escriba primero"`. El bot no inicia contacto.
+8. **Etapa `nuevo`** (Incoming leads, nunca contactado) → tratar igual que `contacto_inicial`.
+   - Si `num_seguimientos_enviados = 0` → `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "contacto_inicial"`.
+   - Instrucción al agente: "Primer contacto proactivo — este lead no ha escrito antes. Preséntate como 360 Eventos, menciona el VideoBooth 360 brevemente (plataforma giratoria, slow motion, entrega por QR al instante). Si conoces el tipo de evento, úsalo para personalizar. Termina con una pregunta por el tipo de evento o la fecha. Tono cálido y directo. Máximo 35 palabras."
+   - Si `num_seguimientos_enviados >= 1` → continuar con el ciclo normal de seguimientos (día 2, 3, etc.).
 9. **Espera inteligente — subtipo `reunion_programada`**:
    - Fecha futura → `accion: "esperar"`. El reloj de seguimiento se pausa.
    - Fecha hoy o pasada → `accion: "seguimiento"` con instrucción PERSONALIZADA que mencione la reunión concretamente.
