@@ -340,6 +340,7 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     let mensajeAprobado = null;
     let intentosQA = 0;
     let ultimaCorreccion = null;
+    let errorLoop = null; // Captura el primer error técnico (OpenAI, red, etc.)
 
     while (intentosQA < MAX_REINTENTOS_QA && !mensajeAprobado) {
       intentosQA++;
@@ -358,6 +359,7 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         );
       } catch (err) {
         console.error(`[Agente ${accion.agente_destino}] Error:`, err.message);
+        errorLoop = `Agente error (intento ${intentosQA}): ${err.message}`;
         break;
       }
 
@@ -366,6 +368,7 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         revision = await revisarMensaje(borrador, lead.contexto, lead.historial, accion.instruccion_agente);
       } catch (err) {
         console.error("[QA] Error:", err.message);
+        errorLoop = `QA error (intento ${intentosQA}): ${err.message}`;
         break;
       }
 
@@ -373,16 +376,18 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         mensajeAprobado = revision.mensaje_final;
         console.log(`[QA] ✓ Aprobado (intento ${intentosQA})`);
       } else {
-        ultimaCorreccion = revision.correcciones_sugeridas;
+        ultimaCorreccion = revision.correcciones_sugeridas || revision.razones?.join(", ") || "sin detalle";
         reporte.mensajes_rechazados_qa++;
-        console.warn(`[QA] ✗ Rechazado: ${revision.razones?.join(", ")}`);
+        console.warn(`[QA] ✗ Rechazado (${intentosQA}/${MAX_REINTENTOS_QA}): ${ultimaCorreccion}`);
       }
     }
 
     if (!mensajeAprobado) {
-      const msg = `QA rechazó ${MAX_REINTENTOS_QA} intentos\nLead: ${lead.nombre || lead.telefono}\nÚltima razón: ${ultimaCorreccion}`;
+      const razonFinal = errorLoop || ultimaCorreccion || "sin razón registrada";
+      const tipoFalla = errorLoop ? `Error técnico (${intentosQA} intento${intentosQA > 1 ? "s" : ""})` : `QA rechazó ${intentosQA} intento${intentosQA > 1 ? "s" : ""}`;
+      const msg = `${tipoFalla}\nLead: ${lead.nombre || lead.telefono} (${lead.telefono})\nRazón: ${razonFinal}`;
       await evolution.alertarCoordinador(msg);
-      await kommo.agregarNota(accion.lead_id, `Bot no pudo generar mensaje (QA rechazó ${MAX_REINTENTOS_QA} veces)`);
+      await kommo.agregarNota(accion.lead_id, `Bot no pudo generar mensaje — ${tipoFalla.toLowerCase()}. Razón: ${razonFinal.substring(0, 100)}`);
       resultadoAccion.escalado = true;
       reporte.escalados_humano++;
     } else {
