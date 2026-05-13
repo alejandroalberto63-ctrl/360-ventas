@@ -200,3 +200,6 @@ Si hay alerta crítica (escalado, oportunidad):
     - Responde SOLO la más crítica (factura > provincia > fecha > precio > otras). Instruye al agente a decir "Te respondo el resto en seguida."
 17. **Lead reactivado tras [SISTEMA] obsoleto** (`alertas` incluye `sistema_obsoleto:N_dias`):
     - `accion: "responder"`, `agente_destino: "contacto_inicial"`, instrucción: bienvenida cálida + recalificar la fecha actual. No continuar negociación previa.
+18. **Cliente quiere comprar el equipo** (`alertas` incluye `quiere_comprar_equipo`):
+    - `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "perdido"`.
+    - Instrucción al agente: "El cliente quiere COMPRAR el equipo, no contratar el servicio. Responde con máximo 2 oraciones: (1) aclarar que no vendemos equipos, solo prestamos el servicio para eventos, (2) desearle éxito. Tono amable, sin preguntar nada más. El lead se cerrará tras este mensaje."

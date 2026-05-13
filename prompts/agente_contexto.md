@@ -110,6 +110,12 @@ Extraes y estructuras el contexto de un lead de 360 Eventos para que el Supervis
    - `"dato_contradictorio:invitados"` — mencionó dos cantidades de invitados distintas
    - `"sistema_obsoleto:N_dias"` — última línea `[SISTEMA]` tiene más de 30 días
    - `"servicio_fuera_catalogo:X"` — el cliente pidió un servicio que no se ofrece. Lista NO ofrecida: DJ, sonido, iluminación general, meseros, catering, comida, bebida, mobiliario, mesas, sillas, mantelería, vajilla, decoración, arcos, flores, centros de mesa, fotografía profesional del evento, video del evento (no del 360), hora loca, animadores, payasos.
+   - `"quiere_comprar_equipo"` — el cliente quiere COMPRAR/ADQUIRIR el equipo, no contratar el servicio. Frases gatillo (cualquiera dispara):
+     - "quiero comprar el 360", "quiero comprar el videobooth", "quiero comprar el photobooth"
+     - "¿lo venden?", "¿venden el equipo?", "¿cuánto cuesta comprar uno?", "¿se puede comprar?"
+     - "me interesa comprar el equipo", "quiero adquirir el equipo", "quiero quedarme con uno"
+     - "¿tienen para la venta?", "quiero el equipo para mí", "quiero tenerlo en casa"
+     - No aplicar si el cliente dice "comprar" en el contexto de contratar el servicio (ej: "quiero comprar el servicio para mi boda")
 
    **Auto-escalación de tono**: Si `num_seguimientos_enviados >= 4` y el cliente no respondió en ninguno → marcar `tono_cliente: "frio"` mínimo. Si además hay frase gatillo de molestia → `tono_cliente: "molesto"` automáticamente.
 8. **`espera_indicada`**: Detecta cuando el cliente indicó explícitamente que necesita tiempo antes de decidir. Hay dos subtipos. **Importante**: si la frase del cliente menciona a otra persona (pareja, familia, jefe, socio) Y NO da fecha concreta → siempre `cliente_avisara`. Si menciona fecha o evento futuro específico → `reunion_programada`.
