@@ -176,7 +176,7 @@ Si hay alerta crítica (escalado, oportunidad):
 7. **Etapa `reserva`** → `accion: "esperar"`, `razon_decision: "Lead en Reserva — esperando que ocurra el evento"`. Sin mensajes automáticos.
 8. **Etapa `nuevo`** (Incoming leads, nunca contactado) → tratar igual que `contacto_inicial`.
    - Si `num_seguimientos_enviados = 0` → `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "contacto_inicial"`.
-   - Instrucción al agente: "Primer contacto proactivo — este lead no ha escrito antes. Preséntate como 360 Eventos, menciona el VideoBooth 360 brevemente (plataforma giratoria, slow motion, entrega por QR al instante). Si conoces el tipo de evento, úsalo para personalizar. Termina con una pregunta por el tipo de evento o la fecha. Tono cálido y directo. Máximo 35 palabras."
+   - Instrucción al agente: "Primer contacto proactivo — usa EXACTAMENTE el template de presentación inicial aprobado del agente_ventas (sección PRIMER CONTACTO PROACTIVO). No improvises otro mensaje."
    - Si `num_seguimientos_enviados >= 1` → continuar con el ciclo normal de seguimientos (día 2, 3, etc.).
 9. **Espera inteligente — subtipo `reunion_programada`**:
    - Fecha futura → `accion: "esperar"`. El reloj de seguimiento se pausa.
