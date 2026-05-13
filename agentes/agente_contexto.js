@@ -28,7 +28,14 @@ async function extraerContexto(leadData, historial) {
     day: "numeric",
   });
 
-  const user = `FECHA_HOY: ${fechaHoy}\n\nDATOS DEL LEAD:\n${JSON.stringify(leadData, null, 2)}\n\n${fuenteHistorial}`;
+  // Enviamos solo los campos relevantes del lead — sin log_wa cuando tenemos historial
+  // de Evolution (evita duplicar la conversación y reduce tokens ~2000 por lead)
+  const { log_wa, custom_fields_values, ...leadSinLog } = leadData;
+  const leadParaContexto = historialTexto
+    ? leadSinLog                          // Evolution tiene historial → log_wa es redundante
+    : { ...leadSinLog, log_wa: log_wa };  // Sin historial → mantener log_wa como fuente
+
+  const user = `FECHA_HOY: ${fechaHoy}\n\nDATOS DEL LEAD:\n${JSON.stringify(leadParaContexto, null, 2)}\n\n${fuenteHistorial}`;
 
   const raw = await llamarJSON(PROMPT, user, { temperature: 0.2, maxTokens: 1024 });
 

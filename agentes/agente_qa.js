@@ -1,4 +1,4 @@
-const { llamarJSON } = require("./openai_client");
+const { llamarJSONMini } = require("./openai_client");
 const fs = require("fs");
 const path = require("path");
 
@@ -31,7 +31,7 @@ async function revisarMensaje(mensajePropuesto, contexto, historial, instruccion
     instruccion_original: instruccionOriginal,
   }, null, 2);
 
-  return llamarJSON(PROMPT, user, { temperature: 0.1, maxTokens: 512 });
+  return llamarJSONMini(PROMPT, user, { temperature: 0.1, maxTokens: 512 });
 }
 
 module.exports = { revisarMensaje };

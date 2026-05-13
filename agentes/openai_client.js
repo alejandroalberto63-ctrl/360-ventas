@@ -4,7 +4,8 @@
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const MODEL = "gpt-4o";
+const MODEL       = "gpt-4o";        // Contexto + Supervisor: necesitan máximo razonamiento
+const MODEL_MINI  = "gpt-4o-mini";   // QA + Agentes de etapa: tareas más simples, 16x más barato
 const BASE = "https://api.openai.com/v1/chat/completions";
 
 // ─── Contador de tokens por ciclo ─────────────────────────────────────────
@@ -25,9 +26,11 @@ function getUsage() {
  * Precios vigentes: $2.50/1M input · $10.00/1M output
  */
 function calcularCostoUSD(usage) {
+  // Estimación conservadora: asume mitad de tokens en mini, mitad en gpt-4o
+  // Para exactitud real ver OpenAI dashboard
   const input  = (usage.prompt_tokens     / 1_000_000) * 2.50;
   const output = (usage.completion_tokens / 1_000_000) * 10.00;
-  return +(input + output).toFixed(5); // 5 decimales para ver centavos reales
+  return +(input + output).toFixed(5);
 }
 
 function _acumularUsage(uso) {
@@ -79,7 +82,7 @@ async function llamar(systemPrompt, userContent, opts = {}) {
 }
 
 /**
- * Llama y parsea JSON directamente
+ * Llama y parsea JSON directamente (gpt-4o — contexto y supervisor)
  */
 async function llamarJSON(systemPrompt, userContent, opts = {}) {
   const texto = await llamar(systemPrompt, userContent, { ...opts, json: true });
@@ -88,6 +91,50 @@ async function llamarJSON(systemPrompt, userContent, opts = {}) {
   } catch {
     const match = texto.match(/\{[\s\S]*\}/);
     if (!match) throw new Error("OpenAI no devolvió JSON válido");
+    return JSON.parse(match[0]);
+  }
+}
+
+/**
+ * Igual que llamar pero con gpt-4o-mini (16x más barato — para QA y agentes de etapa)
+ */
+async function llamarMini(systemPrompt, userContent, opts = {}) {
+  const { temperature = 0.7, json = false, maxTokens = 1024 } = opts;
+  const body = {
+    model: MODEL_MINI,
+    max_tokens: maxTokens,
+    temperature,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user",   content: userContent  },
+    ],
+  };
+  if (json) body.response_format = { type: "json_object" };
+
+  const res = await fetch(BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI mini error ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  _acumularUsage(data.usage);
+  return data.choices[0].message.content.trim();
+}
+
+/**
+ * Llama con mini y parsea JSON (para QA y agentes de etapa)
+ */
+async function llamarJSONMini(systemPrompt, userContent, opts = {}) {
+  const texto = await llamarMini(systemPrompt, userContent, { ...opts, json: true });
+  try {
+    return JSON.parse(texto);
+  } catch {
+    const match = texto.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("OpenAI mini no devolvió JSON válido");
     return JSON.parse(match[0]);
   }
 }
@@ -187,4 +234,4 @@ async function transcribirAudio(base64Audio, mimeType = "audio/ogg", idioma = "e
   return (data.text || "").trim();
 }
 
-module.exports = { llamar, llamarJSON, llamarConImagen, transcribirAudio, resetUsage, getUsage, calcularCostoUSD };
+module.exports = { llamar, llamarJSON, llamarMini, llamarJSONMini, llamarConImagen, transcribirAudio, resetUsage, getUsage, calcularCostoUSD };

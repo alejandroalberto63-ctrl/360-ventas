@@ -1,4 +1,4 @@
-const { llamar } = require("./openai_client");
+const { llamarMini } = require("./openai_client");
 const fs = require("fs");
 const path = require("path");
 
@@ -34,7 +34,7 @@ ${instruccion}
 
 Genera SOLO el texto del mensaje. Sin comillas, sin explicaciones, sin prefijos.`;
 
-  return llamar(prompt, user, { temperature: 0.75, maxTokens: 200 });
+  return llamarMini(prompt, user, { temperature: 0.75, maxTokens: 200 });
 }
 
 module.exports = { generarMensaje };
