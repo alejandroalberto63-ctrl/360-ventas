@@ -257,44 +257,6 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     const alertasCtx = lead.contexto?.alertas || [];
     const tonoCli = lead.contexto?.tono_cliente;
 
-    // Hard -1 (CIERRE AUTOMÁTICO ÚNICO — DEPURACIÓN 12 MAYO 2026):
-    // Regla especial activa SOLO el 12 de mayo de 2026 en hora Ecuador (UTC-5).
-    // Cuenta mensajes del bot consecutivos desde el final del historial. Si llega a 5+,
-    // cierra el lead como "perdido". Después del 12 de mayo esta validación queda
-    // inactiva automáticamente y el cierre vuelve a la lógica normal de Regla 3
-    // (5 seguimientos + 120h sin respuesta).
-    const FIN_DEPURACION_5MSGS = new Date("2026-05-13T05:00:00.000Z"); // 00:00 EC del 13 mayo
-    const depuracionActiva = Date.now() < FIN_DEPURACION_5MSGS.getTime();
-    const consecutivosBot = depuracionActiva
-      ? (() => {
-          const h = lead.historial || [];
-          let n = 0;
-          for (let i = h.length - 1; i >= 0; i--) {
-            if (h[i].role !== "lead") n++;
-            else break;
-          }
-          return n;
-        })()
-      : 0;
-    if (depuracionActiva && consecutivosBot >= 5) {
-      console.warn(
-        `[HARD-CLOSE] Lead ${lead.id} 🚪 cerrando — ${consecutivosBot} mensajes consecutivos del bot sin respuesta`
-      );
-      try {
-        await kommo.moverEtapa(accion.lead_id, "perdido");
-        await kommo.appendLog(
-          accion.lead_id,
-          `[SISTEMA-CIERRE] auto_perdido:${consecutivosBot}_msgs_bot_sin_respuesta`
-        );
-      } catch (e) {
-        console.error(`[HARD-CLOSE] Error cerrando lead ${lead.id}:`, e.message);
-      }
-      resultadoAccion.razon = "hard_close_5_sin_respuesta";
-      resultadoAccion.nueva_etapa = "perdido";
-      reporte.detalle_acciones.push(resultadoAccion);
-      continue;
-    }
-
     // Hard 0 (ANTI-SPAM): si el bot envió mensaje hace menos de 20 horas Y el cliente
     // no respondió desde entonces → BLOQUEO. Esta validación es independiente del LLM
     // supervisor y previene rachas de mensajes (bug histórico de no respetar Regla 2).
