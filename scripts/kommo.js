@@ -162,6 +162,22 @@ async function obtenerLead(leadId) {
 }
 
 /**
+ * Igual que obtenerLead pero también resuelve el teléfono del contacto.
+ * Hace una segunda llamada a la API de contactos.
+ */
+async function obtenerLeadConTelefono(leadId) {
+  const res = await fetch(
+    `${BASE}/leads/${leadId}?with=contacts,custom_fields_values`,
+    { headers: headers() }
+  );
+  if (!res.ok) throw new Error(`Kommo lead ${leadId}: ${res.status}`);
+  const raw = await res.json();
+  const contactId = raw._embedded?.contacts?.[0]?.id;
+  const telefonos = contactId ? await obtenerTelefonosPorContactos([contactId]) : {};
+  return { ...normalizarLead(raw), telefono: telefonos[contactId] || null };
+}
+
+/**
  * Busca lead en el pipeline 360 por número de teléfono
  */
 async function buscarLeadPorTelefono(telefono) {
@@ -435,6 +451,7 @@ function resolverNombreEtapa(statusId) {
 module.exports = {
   obtenerLeadsActivos,
   obtenerLead,
+  obtenerLeadConTelefono,
   buscarLeadPorTelefono,
   crearLead,
   moverEtapa,

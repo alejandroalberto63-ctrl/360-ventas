@@ -134,7 +134,7 @@ app.get("/debug/lead/:leadId", async (req, res) => {
 
   const { leadId } = req.params;
   try {
-    const lead = await kommo.obtenerLead(leadId);
+    const lead = await kommo.obtenerLeadConTelefono(leadId);
     if (!lead) return res.status(404).json({ error: "Lead no encontrado" });
 
     const log = lead.log_wa || "";
