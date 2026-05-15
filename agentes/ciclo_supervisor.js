@@ -687,9 +687,30 @@ async function procesarMensajeEntrante(payload) {
   const esGrupo = remoteJid.includes("@g.us");
   if (esGrupo) return; // Ignorar grupos
 
-  const telefono = remoteJid.replace("@s.whatsapp.net", "");
+  // WhatsApp introdujo @lid (locally-identified) para privacy. El payload
+  // incluye `remoteJidAlt` con el teléfono real en formato @s.whatsapp.net
+  // cuando addressingMode === "lid". Sin esto, "telefono" termina siendo
+  // un identificador @lid y buscarLeadPorTelefono nunca encuentra el lead.
+  const remoteJidAlt = payload?.data?.key?.remoteJidAlt || "";
+  const addressingMode = payload?.data?.key?.addressingMode;
+  const jidParaTelefono =
+    (addressingMode === "lid" || remoteJid.includes("@lid")) && remoteJidAlt
+      ? remoteJidAlt
+      : remoteJid;
+
+  const telefono = jidParaTelefono
+    .replace("@s.whatsapp.net", "")
+    .replace("@lid", "");
+
   const esDelBot = payload?.data?.key?.fromMe;
   if (esDelBot) return; // Ignorar mensajes propios
+
+  // Si después de normalizar el teléfono no es numérico (caso @lid sin
+  // remoteJidAlt), no hay forma de buscar el lead — abortar.
+  if (!/^\d+$/.test(telefono)) {
+    console.warn(`[Webhook] Teléfono no resoluble: jid=${remoteJid} alt=${remoteJidAlt} mode=${addressingMode}`);
+    return;
+  }
 
   const messageKey = payload?.data?.key;
   const msgId = messageKey?.id;
