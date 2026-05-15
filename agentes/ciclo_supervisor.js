@@ -290,6 +290,7 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         razon_decision:     decision.razon_decision     || "",
         nueva_etapa:        decision.nueva_etapa        || null,
         alerta:             decision.alerta             || null,
+        video_inicial:      decision.video_inicial      || null,
       };
       console.log(`\n[Lead ${lead.id}] ${lead.nombre || lead.telefono} | ${accion.accion} → ${accion.agente_destino || "—"} | ${accion.prioridad}`);
     } catch (err) {
@@ -1086,7 +1087,8 @@ function detectarClienteRespondioAlBot(logWa, historial) {
       if (!line.trim()) continue;
       if (line.includes("[BOT→")) {
         botFound = true;
-      } else if (botFound && line.includes("[CLIENTE]")) {
+      } else if (botFound && (line.includes("[CLIENTE]") || line.includes("[IN]"))) {
+        // [CLIENTE] = escrito por Node.js webhook; [IN] = escrito por n8n Buffer
         return true;
       }
     }
@@ -1236,7 +1238,8 @@ function preFiltroPorLogWa(lead) {
     const linea = lineas[i];
 
     // Si encontramos un mensaje del cliente ANTES de haber encontrado el bot → respondió
-    if (ultimaBotTs === null && linea.includes("[CLIENTE")) {
+    // [CLIENTE = Node.js webhook; [IN] = n8n Buffer (ambos son mensajes del cliente)
+    if (ultimaBotTs === null && (linea.includes("[CLIENTE") || linea.includes("[IN]"))) {
       // Hay mensaje de cliente más reciente que cualquier bot → siempre procesar
       clienteRespondioDesdeBot = true;
       break;
@@ -1250,7 +1253,8 @@ function preFiltroPorLogWa(lead) {
         if (isNaN(ultimaBotTs)) { ultimaBotTs = null; continue; }
         // Ya tenemos el último bot — revisar si hay cliente DESPUÉS en líneas posteriores
         for (let j = i + 1; j < lineas.length; j++) {
-          if (lineas[j].includes("[CLIENTE")) {
+          // [CLIENTE = Node.js webhook; [IN] = n8n Buffer (ambos son mensajes del cliente)
+          if (lineas[j].includes("[CLIENTE") || lineas[j].includes("[IN]")) {
             clienteRespondioDesdeBot = true;
             break;
           }
