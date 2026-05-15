@@ -260,6 +260,12 @@ const CATALOGO_VIDEOS = {
     caption: "¡Mira cómo lucen nuestros efectos especiales para hacer tu momento inolvidable! ✨💨",
     fileName: "efecto.mp4",
   },
+  // Demo general del VideoBooth 360 (cuando el cliente pregunta por el 360 sin especificar evento)
+  videobooth: {
+    media: "https://drive.google.com/uc?export=download&id=16bCR86dTE8lih_aAIIVFPXaO3dkXzskv",
+    caption: "¡Así luce el VideoBooth 360 en acción! Slow motion, luces LED y video al instante 🎡✨",
+    fileName: "video_360_demo.mp4",
+  },
 };
 
 // Aliases para tipos de evento que el agente usa con nombres distintos
@@ -280,6 +286,9 @@ const ALIASES_VIDEO = {
   "efectos": "efectos",
   "niebla": "efectos",
   "pirotecnia": "efectos",
+  "videobooth": "videobooth",
+  "360": "videobooth",
+  "video360": "videobooth",
 };
 
 /**

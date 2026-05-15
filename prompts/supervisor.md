@@ -183,7 +183,7 @@ Si hay alerta crítica (escalado, oportunidad):
 
    | Palabras clave en el mensaje del cliente | Template a usar | `video_inicial` |
    |------------------------------------------|-----------------|-----------------|
-   | "360", "videobooth", "video 360", "plataforma", "slow motion" | TEMPLATE 360 | `null` |
+   | "360", "videobooth", "video 360", "plataforma", "slow motion" | TEMPLATE 360 | `"videobooth"` |
    | "photobooth", "photo booth", "fotos", "fotografía", "impresión" | TEMPLATE PHOTOBOOTH | `"photobooth"` |
    | "niebla", "pirotecnia", "fuegos", "cartuchos", "vals", "efectos" | TEMPLATE NIEBLA_PIROTECNIA | `"efectos"` |
    | Sin servicio específico / "información" / "info" / genérico | TEMPLATE GENERAL | `null` |
