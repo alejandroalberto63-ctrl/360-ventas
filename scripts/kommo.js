@@ -182,6 +182,7 @@ async function obtenerLeadConTelefono(leadId) {
  */
 async function buscarLeadPorTelefono(telefono, { reintentos = 4, delayMs = 3000 } = {}) {
   const tel = telefono.replace(/\D/g, "");
+  const ETAPAS_CERRADAS = new Set(["ganado", "perdido"]);
 
   for (let intento = 1; intento <= reintentos; intento++) {
     const url = new URL(`${BASE}/contacts`);
@@ -194,13 +195,32 @@ async function buscarLeadPorTelefono(telefono, { reintentos = 4, delayMs = 3000 
         const data = await res.json();
         const contactos = data?._embedded?.contacts || [];
 
+        // Recolecta TODOS los leads del pipeline 360 vinculados a estos contactos.
+        // Un mismo cliente puede tener múltiples leads (uno cerrado + uno nuevo).
+        // Sin filtro: devolvíamos el primero (típicamente el viejo en perdido) y
+        // el ciclo lo descartaba por estar cerrado → bot nunca respondía.
+        const leadsPipeline = [];
         for (const contacto of contactos) {
           for (const leadRef of contacto._embedded?.leads || []) {
             try {
               const lead = await obtenerLead(leadRef.id);
-              if (lead.pipelineId === config.kommo.pipelineId) return lead;
+              if (lead.pipelineId === config.kommo.pipelineId) leadsPipeline.push(lead);
             } catch { continue; }
           }
+        }
+
+        if (leadsPipeline.length > 0) {
+          // Preferir leads ACTIVOS (no ganado/perdido). Si hay varios activos,
+          // el más recientemente actualizado. Si todos están cerrados, devolver
+          // el más reciente (último recurso, raro pero mejor que null).
+          const activos = leadsPipeline.filter((l) => !ETAPAS_CERRADAS.has(l.etapa_actual));
+          const candidatos = activos.length > 0 ? activos : leadsPipeline;
+          candidatos.sort((a, b) => (b.timestamp_actualizacion || 0) - (a.timestamp_actualizacion || 0));
+          const elegido = candidatos[0];
+          if (leadsPipeline.length > 1) {
+            console.log(`[Kommo] ${tel} tiene ${leadsPipeline.length} leads en pipeline 360 (${activos.length} activos) — elegido #${elegido.id} (${elegido.etapa_actual})`);
+          }
+          return elegido;
         }
       }
     } catch (err) {
