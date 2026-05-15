@@ -64,7 +64,8 @@ ${esPrimerContacto
   : `⚠️ LÍMITES ESTRICTOS — el QA RECHAZA si los violas:
 - MÁXIMO 35 PALABRAS (cuenta separando por espacios)
 - MÁXIMO 2 ORACIONES (separadas por punto final)
-- MÁXIMO 1 PREGUNTA (1 solo signo "?"), al final, en **negrita**
+- MÁXIMO 1 PREGUNTA — exactamente 1 solo signo "?" de cierre, al final, en **negrita**. El par ¿...? cuenta como 1 sola pregunta.
+- Si la instrucción dice "UNA SOLA pregunta cerrada con dos opciones" → escribe EXACTAMENTE "**¿Opción A o Opción B?**" y nada más
 - MÁXIMO 1 EMOJI en todo el mensaje (0 emojis es mejor)
 - NO REPETIR preguntas que el cliente ya respondió en historial
 - NO contradecir lo que el bot ya dijo antes
