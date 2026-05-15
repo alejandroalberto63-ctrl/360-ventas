@@ -148,7 +148,7 @@ El bot maneja todo hasta negociación avanzada. Escala a humano SOLO cuando:
 }
 ```
 
-`video_inicial` — solo se usa en primer contacto proactivo. Indica si el sistema debe enviar un video demo de servicio inmediatamente después del mensaje inicial. Solo aplica a photobooth y efectos; 360 y general usan `null` (el video se envía más adelante basado en tipo de evento).
+`video_inicial` — solo se usa en primer contacto proactivo. Indica qué video demo enviar inmediatamente después del mensaje inicial. General usa `null` (sin video inmediato). El video de tipo evento (boda, quinceaños, etc.) se sigue enviando automáticamente cuando se identifica el tipo de evento.
 
 Si hay alerta crítica (escalado, oportunidad):
 ```json
