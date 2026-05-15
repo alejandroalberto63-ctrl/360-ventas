@@ -237,3 +237,4 @@ app.listen(PORT, () => {
   console.log(`  GET  /reporte           → Último reporte`);
   console.log(`  POST /reporte-gerencial → Genera y envía reporte al WA del dueño\n`);
 });
+// Fri May 15 00:44:01 -05 2026
