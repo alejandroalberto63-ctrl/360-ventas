@@ -247,6 +247,42 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       } else {
         contexto = await extraerContexto({ ...lead }, historial);
         reporte.contextos_con_llm++;
+
+        // OVERRIDE DETERMINISTA — el LLM no es confiable extrayendo seg/neg/precio.
+        // Si hay línea [SISTEMA] reciente y no obsoleta, sus valores son verdad absoluta.
+        // Sin esto: el seg counter REGRESA (ej: seg:2 → seg:1) cuando el cliente responde,
+        // rompiendo toda la lógica del supervisor (Rule 8 se activa por error, etc).
+        if (ultimoSistema && !sistemaObsoleto) {
+          const segReal = ultimoSistema.seg != null && ultimoSistema.seg !== "null" ? Number(ultimoSistema.seg) : null;
+          const negReal = ultimoSistema.neg != null && ultimoSistema.neg !== "null" ? Number(ultimoSistema.neg) : null;
+          const precioReal = ultimoSistema.precio != null && ultimoSistema.precio !== "null" ? Number(ultimoSistema.precio) : null;
+          const ctaReal = ultimoSistema.cta === "1";
+
+          if (!contexto.conversacion) contexto.conversacion = {};
+          if (!contexto.comercial) contexto.comercial = {};
+
+          if (segReal != null && !Number.isNaN(segReal)) {
+            const segLLM = contexto.conversacion.num_seguimientos_enviados ?? 0;
+            if (segLLM !== segReal) {
+              console.log(`[Contexto] Lead ${lead.id} 🔧 override seg: LLM=${segLLM} → [SISTEMA]=${segReal}`);
+            }
+            contexto.conversacion.num_seguimientos_enviados = segReal;
+          }
+          if (negReal != null && !Number.isNaN(negReal)) {
+            contexto.comercial.nivel_negociacion_actual = negReal;
+            contexto.nivel_negociacion = negReal;
+          }
+          if (precioReal != null && !Number.isNaN(precioReal)) {
+            contexto.comercial.precio_cotizado = precioReal;
+          }
+          if (ctaReal) {
+            contexto.comercial.cuenta_bancaria_enviada = true;
+            if (!contexto.alertas) contexto.alertas = [];
+            if (!contexto.alertas.includes("cuenta_bancaria_enviada")) {
+              contexto.alertas.push("cuenta_bancaria_enviada");
+            }
+          }
+        }
       }
     } catch (err) {
       console.error(`[Contexto] Error lead ${lead.id}:`, err.message);
