@@ -1,6 +1,6 @@
 {
   "name": "360-eventos-ventas",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Sistema de ventas automatizado 360 Eventos — WhatsApp 593980243197",
   "main": "scripts/servidor.js",
   "scripts": {
