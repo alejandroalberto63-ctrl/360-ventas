@@ -19,6 +19,8 @@ async function generarMensaje(etapa, contexto, instruccion, historial = []) {
     .map((m) => `${m.role === "lead" ? "CLIENTE" : "BOT"}: ${m.content}`)
     .join("\n");
 
+  const esPrimerContacto = instruccion.toLowerCase().includes("primer contacto proactivo");
+
   const user = `ETAPA: ${etapa.toUpperCase()}
 
 CONTEXTO DEL LEAD:
@@ -30,11 +32,14 @@ ${historialTexto || "(primer contacto)"}
 INSTRUCCIÓN DEL SUPERVISOR:
 ${instruccion}
 
-⚠️ LÍMITE ESTRICTO: MÁXIMO 35 PALABRAS (cuenta separando por espacios). Ejemplo correcto con 22 palabras: "Para tu boda el 360 genera videos que los invitados se llevan al instante. **¿Para qué fecha sería?**"
+${esPrimerContacto
+  ? `⚠️ INSTRUCCIÓN CRÍTICA: Copia el template indicado EXACTAMENTE, palabra por palabra, incluyendo emojis, saltos de línea y formato. El límite de 35 palabras NO aplica a templates de primer contacto. NO improvises, NO resumas, NO cambies nada.`
+  : `⚠️ LÍMITE ESTRICTO: MÁXIMO 35 PALABRAS (cuenta separando por espacios). Ejemplo correcto con 22 palabras: "Para tu boda el 360 genera videos que los invitados se llevan al instante. **¿Para qué fecha sería?**"`
+}
 
 Genera SOLO el texto del mensaje. Sin comillas, sin explicaciones, sin prefijos.`;
 
-  return llamarMini(prompt, user, { temperature: 0.75, maxTokens: 200 });
+  return llamarMini(prompt, user, { temperature: esPrimerContacto ? 0 : 0.75, maxTokens: esPrimerContacto ? 600 : 200 });
 }
 
 module.exports = { generarMensaje };
