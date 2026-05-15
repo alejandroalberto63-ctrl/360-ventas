@@ -22,6 +22,11 @@ const WA_DUENO = process.env.WA_DUENO_360;
 
 let ultimoReporte = null;
 
+// Buffer de los últimos webhooks recibidos (para diagnóstico)
+const ULTIMOS_WEBHOOKS = [];
+const WEBHOOK_BUFFER_MAX = 20;
+const SERVER_STARTED_AT = new Date().toISOString();
+
 // ─── Health check ─────────────────────────────────────────────────────────
 
 app.get("/status", (_, res) => {
@@ -66,15 +71,45 @@ app.post("/webhook/360", async (req, res) => {
 
   const payload = req.body;
 
-  // Solo mensajes de texto entrantes (no de estado, no de grupos)
-  const evento = payload?.event;
-  if (evento !== "messages.upsert") return;
+  // Guardar en buffer para diagnóstico (sin secretos)
+  ULTIMOS_WEBHOOKS.unshift({
+    recibido_en: new Date().toISOString(),
+    event: payload?.event,
+    instance: payload?.instance,
+    fromMe: payload?.data?.key?.fromMe,
+    remoteJid: payload?.data?.key?.remoteJid,
+    remoteJidAlt: payload?.data?.key?.remoteJidAlt,
+    addressingMode: payload?.data?.key?.addressingMode,
+    pushName: payload?.data?.pushName,
+    text: (payload?.data?.message?.conversation || payload?.data?.message?.extendedTextMessage?.text || "").substring(0, 100),
+    msgType: Object.keys(payload?.data?.message || {})[0] || null,
+  });
+  if (ULTIMOS_WEBHOOKS.length > WEBHOOK_BUFFER_MAX) ULTIMOS_WEBHOOKS.length = WEBHOOK_BUFFER_MAX;
+
+  console.log(`[Webhook] event=${payload?.event} instance=${payload?.instance} jid=${payload?.data?.key?.remoteJid} alt=${payload?.data?.key?.remoteJidAlt}`);
+
+  // Solo mensajes entrantes (Evolution puede usar "messages.upsert" o "MESSAGES_UPSERT")
+  const evento = (payload?.event || "").toLowerCase().replace(/_/g, ".");
+  if (evento !== "messages.upsert") {
+    console.log(`[Webhook] Evento "${payload?.event}" no es messages.upsert — ignorando`);
+    return;
+  }
 
   try {
     await procesarMensajeEntrante(payload);
   } catch (err) {
     console.error("[Webhook] Error procesando mensaje:", err.message);
   }
+});
+
+// ─── Endpoint diagnóstico: ver últimos webhooks recibidos ─────────────────
+app.get("/debug/webhooks", (_, res) => {
+  res.json({
+    deployed_commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "unknown",
+    server_started_at: SERVER_STARTED_AT,
+    total_recibidos: ULTIMOS_WEBHOOKS.length,
+    ultimos: ULTIMOS_WEBHOOKS,
+  });
 });
 
 // ─── Reporte último ciclo ─────────────────────────────────────────────────
