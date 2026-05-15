@@ -143,9 +143,12 @@ El bot maneja todo hasta negociación avanzada. Escala a humano SOLO cuando:
   "razon_decision": "Por qué tomaste esta decisión en 1 oración",
   "nueva_etapa": "contacto_inicial|seguimiento|negociacion|reserva|perdido|null",
   "prioridad": "urgente|alta|media|baja",
+  "video_inicial": "photobooth|efectos|null",
   "alerta": null
 }
 ```
+
+`video_inicial` — solo se usa en primer contacto proactivo. Indica si el sistema debe enviar un video demo de servicio inmediatamente después del mensaje inicial. Solo aplica a photobooth y efectos; 360 y general usan `null` (el video se envía más adelante basado en tipo de evento).
 
 Si hay alerta crítica (escalado, oportunidad):
 ```json
@@ -174,9 +177,18 @@ Si hay alerta crítica (escalado, oportunidad):
 5. Si el lead tiene fecha de evento en menos de 7 días → `prioridad: "urgente"` siempre.
 6. **Cliente dijo que no le interesa** ("no me interesa", "ya no", "conseguí otro", "no gracias", "cancela") → `accion: "esperar"`, `nueva_etapa: "perdido"`. Sin mensaje.
 7. **Etapa `reserva`** → `accion: "esperar"`, `razon_decision: "Lead en Reserva — esperando que ocurra el evento"`. Sin mensajes automáticos.
-8. **Etapa `nuevo`** (Incoming leads, nunca contactado) → tratar igual que `contacto_inicial`.
-   - Si `num_seguimientos_enviados = 0` → `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "contacto_inicial"`.
-   - Instrucción al agente: "Primer contacto proactivo — usa EXACTAMENTE el template de presentación inicial aprobado del agente_ventas (sección PRIMER CONTACTO PROACTIVO). No improvises otro mensaje."
+8. **Etapa `nuevo`** o **primer contacto** (`num_seguimientos_enviados = 0`, sin historial previo de bot):
+   - `accion: "responder"`, `agente_destino: "contacto_inicial"`, `nueva_etapa: "contacto_inicial"`.
+   - Detecta el servicio mencionado en `ultimo_mensaje_cliente` y elige el template correcto:
+
+   | Palabras clave en el mensaje del cliente | Template a usar | `video_inicial` |
+   |------------------------------------------|-----------------|-----------------|
+   | "360", "videobooth", "video 360", "plataforma", "slow motion" | TEMPLATE 360 | `null` |
+   | "photobooth", "photo booth", "fotos", "fotografía", "impresión" | TEMPLATE PHOTOBOOTH | `"photobooth"` |
+   | "niebla", "pirotecnia", "fuegos", "cartuchos", "vals", "efectos" | TEMPLATE NIEBLA_PIROTECNIA | `"efectos"` |
+   | Sin servicio específico / "información" / "info" / genérico | TEMPLATE GENERAL | `null` |
+
+   - Instrucción al agente: "Primer contacto proactivo — usa EXACTAMENTE el TEMPLATE [NOMBRE] del agente_ventas (sección PRIMER CONTACTO PROACTIVO). No improvises ni modifiques nada."
    - Si `num_seguimientos_enviados >= 1` → continuar con el ciclo normal de seguimientos (día 2, 3, etc.).
 9. **Espera inteligente — subtipo `reunion_programada`**:
    - Fecha futura → `accion: "esperar"`. El reloj de seguimiento se pausa.

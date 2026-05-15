@@ -558,30 +558,37 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         );
 
         // ─── VIDEO DEMO automático ──────────────────────────────────────────
-        // Si el lead tiene tipo_evento identificado Y no se le ha enviado video
-        // de ese tipo todavía Y la etapa es de venta/calificación, manda demo.
+        // Prioridad 1: video_inicial del supervisor (primer contacto por servicio)
+        //   photobooth → video photobooth, efectos → video niebla/pirotecnia
+        // Prioridad 2: video por tipo_evento (boda, quinceanos, etc.)
+        // En ambos casos: no reenviar si ya fue enviado.
         try {
-          const tipoEvento = lead.contexto?.datos_evento?.tipo
-            || (Array.isArray(lead.tipo_evento) ? lead.tipo_evento[0] : null);
-          const claveVideo = evolution.resolverTipoVideo(tipoEvento);
           const logActual = lead.log_wa || "";
-          const yaEnviado = claveVideo && logActual.includes(`[SISTEMA-VIDEO] tipo=${claveVideo}`);
           const etapasParaVideo = ["contacto_inicial", "negociacion"];
           const esEtapaValida = etapasParaVideo.includes(accion.nueva_etapa || lead.etapa_actual);
 
-          if (claveVideo && !yaEnviado && esEtapaValida) {
+          // Prioridad 1 — video por servicio (primer contacto photobooth / efectos)
+          const videoInicial = accion.video_inicial || null;
+          const claveServicio = videoInicial && evolution.resolverTipoVideo(videoInicial);
+          const yaEnviadoServicio = claveServicio && logActual.includes(`[SISTEMA-VIDEO] tipo=${claveServicio}`);
+
+          // Prioridad 2 — video por tipo de evento conocido
+          const tipoEvento = lead.contexto?.datos_evento?.tipo
+            || (Array.isArray(lead.tipo_evento) ? lead.tipo_evento[0] : null);
+          const claveEvento = !claveServicio && evolution.resolverTipoVideo(tipoEvento);
+          const yaEnviadoEvento = claveEvento && logActual.includes(`[SISTEMA-VIDEO] tipo=${claveEvento}`);
+
+          const claveVideo  = (claveServicio && !yaEnviadoServicio) ? claveServicio
+                            : (claveEvento   && !yaEnviadoEvento  ) ? claveEvento
+                            : null;
+
+          if (claveVideo && esEtapaValida) {
             // Pequeña pausa para que el texto llegue primero
             await new Promise((r) => setTimeout(r, 2000));
             const videoRes = await evolution.enviarVideo(lead.telefono, claveVideo);
             if (videoRes) {
-              await kommo.appendLog(
-                accion.lead_id,
-                `[BOT→video] tipo=${claveVideo}`
-              );
-              await kommo.appendLog(
-                accion.lead_id,
-                `[SISTEMA-VIDEO] tipo=${claveVideo} enviado=true`
-              );
+              await kommo.appendLog(accion.lead_id, `[BOT→video] tipo=${claveVideo}`);
+              await kommo.appendLog(accion.lead_id, `[SISTEMA-VIDEO] tipo=${claveVideo} enviado=true`);
               console.log(`[Video] 🎥 Demo "${claveVideo}" enviado al lead ${accion.lead_id}`);
             }
           }
