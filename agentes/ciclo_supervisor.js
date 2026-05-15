@@ -575,9 +575,23 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       if (!errorLoop) {
         // Fallback seguro: mensaje genérico que siempre pasa QA
         // Cumple: ≤35 palabras, 1 pregunta en negrita, 0 emojis, sin precio, sin servicios
-        const nombreLead = lead.nombre?.split(" ")[0] || null;
+        // Detectar si lead.nombre es auto-generado ("Lead #12345") y usar null
+        const nombreCrudo = lead.nombre || "";
+        const esNombreAuto = /^Lead #?\d+$/i.test(nombreCrudo) || /^Lead\b/i.test(nombreCrudo);
+        const nombreLead = esNombreAuto ? null : (nombreCrudo.split(" ")[0] || null);
         const saludoNombre = nombreLead ? `Hola ${nombreLead}, ` : "Hola, ";
-        mensajeAprobado = `${saludoNombre}te escribimos de 360 Eventos. Tenemos el VideoBooth 360 para hacer tu evento memorable. **¿Tienes un evento próximo en mente?**`;
+
+        // Si el cliente acaba de escribir algo, no usar fallback genérico —
+        // acknowledge brevemente para evitar respuestas que ignoran el contexto.
+        const ultMsg = (lead.contexto?.ultimo_mensaje_cliente || lead.contexto?.conversacion?.ultimo_mensaje_cliente || "").toLowerCase();
+        const clienteJustoEscribió = ultMsg && ultMsg.length > 3;
+
+        if (clienteJustoEscribió) {
+          // Mensaje contextual seguro — acknowledge sin comprometer detalles
+          mensajeAprobado = `${saludoNombre}gracias por escribirnos. Te paso info en seguida. **¿Para qué tipo de evento sería?**`;
+        } else {
+          mensajeAprobado = `${saludoNombre}te escribimos de 360 Eventos. Tenemos el VideoBooth 360 para hacer tu evento memorable. **¿Tienes un evento próximo en mente?**`;
+        }
         console.warn(`[QA] ⚠️ Usando mensaje fallback seguro para lead ${lead.id}`);
         await kommo.agregarNota(accion.lead_id, `QA no aprobó en ${intentosQA} intentos — se usó mensaje fallback seguro. Razón: ${razonFinal.substring(0, 100)}`);
       } else {

@@ -61,7 +61,17 @@ ${instruccionFinal}
 
 ${esPrimerContacto
   ? `⚠️ INSTRUCCIÓN CRÍTICA: Copia el template indicado EXACTAMENTE, palabra por palabra, incluyendo emojis, saltos de línea y formato. El límite de 35 palabras NO aplica a templates de primer contacto. NO improvises, NO resumas, NO cambies nada.`
-  : `⚠️ LÍMITE ESTRICTO: MÁXIMO 35 PALABRAS (cuenta separando por espacios). Ejemplo correcto con 22 palabras: "Para tu boda el 360 genera videos que los invitados se llevan al instante. **¿Para qué fecha sería?**"`
+  : `⚠️ LÍMITES ESTRICTOS — el QA RECHAZA si los violas:
+- MÁXIMO 35 PALABRAS (cuenta separando por espacios)
+- MÁXIMO 2 ORACIONES (separadas por punto final)
+- MÁXIMO 1 PREGUNTA (1 solo signo "?"), al final, en **negrita**
+- MÁXIMO 1 EMOJI en todo el mensaje (0 emojis es mejor)
+- NO REPETIR preguntas que el cliente ya respondió en historial
+- NO contradecir lo que el bot ya dijo antes
+
+Si lead.nombre es tipo "Lead #12345" o "Lead", NO lo uses como nombre — di solo "Hola" sin nombre.
+
+Ejemplo correcto con 22 palabras, 1 oración, 1 pregunta: "Para tu boda el 360 genera videos que los invitados se llevan al instante. **¿Para qué fecha sería?**"`
 }
 
 Genera SOLO el texto del mensaje. Sin comillas, sin explicaciones, sin prefijos.`;
