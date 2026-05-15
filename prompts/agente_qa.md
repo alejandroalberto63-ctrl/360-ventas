@@ -78,10 +78,35 @@ Si cumple esos 5 puntos → **APRUEBA tal cual viene**. Sin correcciones, sin "m
 - Si `contexto.alertas` incluye `num_preguntas_simultaneas:N` con N >= 3 Y el mensaje intenta responder más de una pregunta → **RECHAZAR** (debe responder solo la prioritaria)
 - Si `contexto.alertas` incluye `sistema_obsoleto` Y el mensaje propuesto continúa la negociación previa (cita precio, nivel, etc) sin recalificar → **RECHAZAR**
 
-### Servicios fuera de catálogo (lista negra explícita)
+### ✅ Servicios DENTRO del catálogo de 360 Eventos (SÍ aprobar si los ofrece)
+
+**🚨 LEER CON ATENCIÓN: estos 4 servicios SON OFICIALES de 360 Eventos.**
+**Si el bot los menciona, los ofrece, los cotiza o los incluye en un combo → APROBAR.**
+**NUNCA los marques como "fuera de catálogo" — son nuestro catálogo principal.**
+
+1. **VideoBooth 360** (alias: "360", "video booth 360", "plataforma giratoria")
+2. **PhotoBooth** (alias: "photo booth", "fotos ilimitadas con impresión")
+3. **Niebla baja** (alias: "niebla", "neblina", "máquina de niebla", "máquina de humo bajo", "humo bajo", "nube en pista")
+4. **Pirotecnia fría** (alias: "pirotecnia", "chispas frías", "cartuchos", "fuegos artificiales fríos", "lluvia de chispas")
+
+**Combos válidos:**
+- VideoBooth 360 desde $120/hora
+- PhotoBooth desde $120/hora
+- Niebla + 2 cartuchos = $120
+- Niebla + 4 cartuchos = $140
+- Niebla baja sola = $100
+- Cartucho individual = $20
+
+**Ejemplos de mensajes que DEBES aprobar (no son fuera de catálogo):**
+- "El combo Niebla baja + Pirotecnia fría es ideal para tu vals — $120" ✅
+- "Tenemos pirotecnia fría a $20 por cartucho" ✅
+- "La máquina de niebla baja dura 5 minutos" ✅
+- "Para tu vals queda perfecto el combo de niebla y pirotecnia" ✅
+
+### ❌ Servicios FUERA de catálogo (lista negra explícita — solo estos)
 
 NUNCA aprueba un mensaje que ofrezca, incluya o prometa cualquiera de estos servicios:
-DJ, sonido del evento, iluminación general, meseros, catering, comida, bebida, mobiliario (mesas, sillas, mantelería, vajilla), decoración (arcos, flores, centros de mesa), fotografía profesional del evento, video del evento (no del 360), hora loca, animadores, payasos.
+DJ, sonido del evento, iluminación general (no la del 360), meseros, catering, comida, bebida, mobiliario (mesas, sillas, mantelería, vajilla), decoración del evento (arcos, flores, centros de mesa), fotografía profesional del evento (no del PhotoBooth), video del evento (no del VideoBooth 360), hora loca, animadores, payasos.
 
 Si el bot menciona alguno de estos como incluido o cotizable → **RECHAZAR** automáticamente.
 

@@ -696,7 +696,12 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         try {
           const ctx = lead.contexto || {};
           const segPrev = ctx.conversacion?.num_seguimientos_enviados ?? 0;
-          const segActual = accion.agente_destino === "seguimiento" ? segPrev + 1 : segPrev;
+          // Incrementar seg en CADA mensaje enviado al cliente (no solo seguimiento).
+          // Antes solo incrementaba si agente=seguimiento → primer contacto se enviaba
+          // múltiples días seguidos (seg quedaba en 0). Ahora día 1=seg:1, día 2=seg:2, etc.
+          // Excepción: mensajes de "espera" (cliente_avisara) no cuentan al ciclo de 5.
+          const esMensajeQueCuenta = ["contacto_inicial", "seguimiento", "negociacion"].includes(accion.agente_destino);
+          const segActual = esMensajeQueCuenta ? segPrev + 1 : segPrev;
           const nivelNeg = ctx.nivel_negociacion ?? ctx.comercial?.nivel_negociacion_actual ?? 0;
           const precio = ctx.comercial?.precio_cotizado ?? "null";
           const etapaFinal = accion.nueva_etapa || lead.etapa_actual;
