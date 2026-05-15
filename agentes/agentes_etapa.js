@@ -19,7 +19,34 @@ async function generarMensaje(etapa, contexto, instruccion, historial = []) {
     .map((m) => `${m.role === "lead" ? "CLIENTE" : "BOT"}: ${m.content}`)
     .join("\n");
 
-  const esPrimerContacto = instruccion.toLowerCase().includes("primer contacto proactivo");
+  // Detección DETERMINISTA de primer contacto: si el bot nunca ha enviado
+  // un mensaje (num_seguimientos = 0 Y no hay [BOT→] en historial), es
+  // primer contacto sin importar qué diga la instrucción del supervisor.
+  // Esto previene que la inconsistencia del LLM supervisor (que a veces
+  // decide "seguimiento" cuando debería ser "primer contacto") rompa el
+  // flujo: el agente siempre va a copiar el template cuando corresponde.
+  const numSeg = contexto?.conversacion?.num_seguimientos_enviados ?? 0;
+  const botEnvioAlgo = (historial || []).some((m) => m.role !== "lead");
+  const esPrimerContactoDeterminista =
+    etapa === "contacto_inicial" && numSeg === 0 && !botEnvioAlgo;
+
+  const esPrimerContacto =
+    esPrimerContactoDeterminista ||
+    instruccion.toLowerCase().includes("primer contacto proactivo");
+
+  // Si es primer contacto pero la instrucción del supervisor no lo dice,
+  // FORZAR la instrucción correcta para que el agente copie un template.
+  // Detectamos qué template usar según el último mensaje del cliente.
+  let instruccionFinal = instruccion;
+  if (esPrimerContactoDeterminista && !instruccion.toLowerCase().includes("primer contacto proactivo")) {
+    const ultMsg = (contexto?.ultimo_mensaje_cliente || contexto?.conversacion?.ultimo_mensaje_cliente || "").toLowerCase();
+    let templateName = "GENERAL";
+    if (/360|videobooth|video.?360|plataforma|slow.?motion|video/.test(ultMsg)) templateName = "360";
+    else if (/photobooth|photo.?booth|fotos|fotograf|impresi/.test(ultMsg)) templateName = "PHOTOBOOTH";
+    else if (/niebla|pirotecnia|fuegos|cartuchos|vals|efectos/.test(ultMsg)) templateName = "NIEBLA_PIROTECNIA";
+    instruccionFinal = `Primer contacto proactivo — usa EXACTAMENTE el TEMPLATE ${templateName} del agente_ventas (sección PRIMER CONTACTO PROACTIVO). No improvises, no resumas, no cambies nada.`;
+    console.log(`[Agente] 🔧 Override determinista: forzando primer contacto TEMPLATE ${templateName} (supervisor dijo otra cosa)`);
+  }
 
   const user = `ETAPA: ${etapa.toUpperCase()}
 
@@ -30,7 +57,7 @@ HISTORIAL RECIENTE:
 ${historialTexto || "(primer contacto)"}
 
 INSTRUCCIÓN DEL SUPERVISOR:
-${instruccion}
+${instruccionFinal}
 
 ${esPrimerContacto
   ? `⚠️ INSTRUCCIÓN CRÍTICA: Copia el template indicado EXACTAMENTE, palabra por palabra, incluyendo emojis, saltos de línea y formato. El límite de 35 palabras NO aplica a templates de primer contacto. NO improvises, NO resumas, NO cambies nada.`

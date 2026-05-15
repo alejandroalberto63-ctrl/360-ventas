@@ -438,6 +438,33 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       continue;
     }
 
+    // OVERRIDE DETERMINISTA: si num_seguimientos = 0 y el bot nunca envió,
+    // es primer contacto sin importar qué dijo el supervisor. Forzar la
+    // instrucción "primer contacto proactivo" para que tanto el agente como
+    // el QA apliquen la lógica de template (sin límite de palabras).
+    const numSegLead = lead.contexto?.conversacion?.num_seguimientos_enviados ?? 0;
+    const botEnvioAlgo = (lead.historial || []).some((m) => m.role !== "lead");
+    const esPrimerContactoReal =
+      (accion.agente_destino === "contacto_inicial" || lead.etapa_actual === "contacto_inicial" || lead.etapa_actual === "nuevo")
+      && numSegLead === 0
+      && !botEnvioAlgo;
+
+    if (esPrimerContactoReal && !accion.instruccion_agente.toLowerCase().includes("primer contacto proactivo")) {
+      const ultMsg = (lead.contexto?.ultimo_mensaje_cliente || lead.contexto?.conversacion?.ultimo_mensaje_cliente || "").toLowerCase();
+      let templateName = "GENERAL";
+      let videoInicial = null;
+      if (/360|videobooth|video.?360|plataforma|slow.?motion|video/.test(ultMsg)) {
+        templateName = "360"; videoInicial = "videobooth";
+      } else if (/photobooth|photo.?booth|fotos|fotograf|impresi/.test(ultMsg)) {
+        templateName = "PHOTOBOOTH"; videoInicial = "photobooth";
+      } else if (/niebla|pirotecnia|fuegos|cartuchos|vals|efectos/.test(ultMsg)) {
+        templateName = "NIEBLA_PIROTECNIA"; videoInicial = "efectos";
+      }
+      accion.instruccion_agente = `Primer contacto proactivo — usa EXACTAMENTE el TEMPLATE ${templateName} del agente_ventas (sección PRIMER CONTACTO PROACTIVO). No improvises, no resumas, no cambies nada.`;
+      accion.video_inicial = accion.video_inicial || videoInicial;
+      console.log(`[Override] 🔧 Lead ${lead.id} es PRIMER CONTACTO REAL — forzando TEMPLATE ${templateName} (supervisor decidió: "${accion.accion}")`);
+    }
+
     // PASO 5: Agente de Etapa genera mensaje → PASO 6: QA revisa
     let mensajeAprobado = null;
     let intentosQA = 0;
