@@ -973,24 +973,28 @@ function validarMensajeFinal(mensaje) {
   if (!mensaje || typeof mensaje !== "string") return "mensaje_vacio";
   const txt = mensaje.toLowerCase();
 
-  // 1. Precios bajo el mínimo — extraer cualquier "$N por X horas" o "$N para X h"
+  // 1. Precios bajo el mínimo — analizar LÍNEA POR LÍNEA para evitar matches
+  // cross-line (ej: "$120\n2 horas" tomaría "$120 para 2 horas" falsamente).
   // Mínimos: 1h=$100, 2h=$180, 3h=$230, 8h=$480
   const minimos = { 1: 100, 2: 180, 3: 230, 8: 480 };
   // Match patterns: "$150 por 2 horas", "$150 para 2h", "150 dolares 2 horas", "2h en $150"
-  const regexPrecio = /\$?\s*(\d{2,4})\s*(?:por|para|en)?\s*(\d)\s*h(?:ora)?s?/g;
-  const regexPrecio2 = /(\d)\s*h(?:ora)?s?\s*(?:por|en|de|a)\s*\$?\s*(\d{2,4})/g;
-  for (const m of mensaje.matchAll(regexPrecio)) {
-    const monto = parseInt(m[1], 10);
-    const horas = parseInt(m[2], 10);
-    if (minimos[horas] && monto < minimos[horas]) {
-      return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+  // Usamos [ \t] (espacios/tabs, no \n) para que el patrón no salte de línea.
+  const regexPrecio = /\$?[ \t]*(\d{2,4})[ \t]*(?:por|para|en)?[ \t]*(\d)[ \t]*h(?:ora)?s?/g;
+  const regexPrecio2 = /(\d)[ \t]*h(?:ora)?s?[ \t]*(?:por|en|de|a)[ \t]*\$?[ \t]*(\d{2,4})/g;
+  for (const linea of mensaje.split("\n")) {
+    for (const m of linea.matchAll(regexPrecio)) {
+      const monto = parseInt(m[1], 10);
+      const horas = parseInt(m[2], 10);
+      if (minimos[horas] && monto < minimos[horas]) {
+        return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+      }
     }
-  }
-  for (const m of mensaje.matchAll(regexPrecio2)) {
-    const horas = parseInt(m[1], 10);
-    const monto = parseInt(m[2], 10);
-    if (minimos[horas] && monto < minimos[horas]) {
-      return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+    for (const m of linea.matchAll(regexPrecio2)) {
+      const horas = parseInt(m[1], 10);
+      const monto = parseInt(m[2], 10);
+      if (minimos[horas] && monto < minimos[horas]) {
+        return `precio_bajo_minimo:${horas}h=$${monto}<$${minimos[horas]}`;
+      }
     }
   }
 
