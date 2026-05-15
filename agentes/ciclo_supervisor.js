@@ -21,6 +21,20 @@ const config = require("../scripts/config");
 
 const MAX_REINTENTOS_QA = config.supervisor.maxReintentosQA;
 
+// Buffer en memoria con detalles del último procesamiento por lead — para
+// diagnosticar producción sin acceso a logs. Expuesto por /debug/last-ciclo.
+const ULTIMOS_CICLOS_DETALLE = new Map(); // leadId -> objeto detalle
+function _registrarDetalleCiclo(leadId, datos) {
+  ULTIMOS_CICLOS_DETALLE.set(String(leadId), { ...datos, ts: new Date().toISOString() });
+  if (ULTIMOS_CICLOS_DETALLE.size > 30) {
+    const oldest = ULTIMOS_CICLOS_DETALLE.keys().next().value;
+    ULTIMOS_CICLOS_DETALLE.delete(oldest);
+  }
+}
+function _obtenerDetallesCiclos() {
+  return Array.from(ULTIMOS_CICLOS_DETALLE.entries()).map(([leadId, d]) => ({ lead_id: leadId, ...d }));
+}
+
 // ─── Deduplicación de mensajes entrantes ──────────────────────────────────────
 // Previene procesar el mismo messageId dos veces si Evolution reenvía el evento.
 const _mensajesProcesados = new Map();
@@ -459,6 +473,23 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
         errorLoop = `QA error (intento ${intentosQA}): ${err.message}`;
         break;
       }
+
+      // DEBUG — capturar borrador y respuesta QA en memoria para diagnóstico
+      const detalleIntento = {
+        intento: intentosQA,
+        instruccion: instruccion.substring(0, 200),
+        borrador: borrador.substring(0, 600),
+        borrador_len: borrador.length,
+        qa_decision: revision.decision,
+        qa_razones: revision.razones || revision.nota || null,
+        qa_correcciones: revision.correcciones_sugeridas || null,
+      };
+      const prev = ULTIMOS_CICLOS_DETALLE.get(String(lead.id))?.intentos || [];
+      _registrarDetalleCiclo(lead.id, {
+        agente_destino: accion.agente_destino,
+        instruccion_inicial: accion.instruccion_agente.substring(0, 200),
+        intentos: [...prev, detalleIntento],
+      });
 
       if (revision.decision === "APRUEBA") {
         mensajeAprobado = revision.mensaje_final;
@@ -1395,4 +1426,4 @@ function calcularHorasSinRespuesta(historial) {
 // obtenerTelefonoLead eliminado — el teléfono ahora viene en batch
 // desde kommo.obtenerLeadsActivos() usando obtenerTelefonosPorContactos()
 
-module.exports = { ejecutarCiclo, ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante };
+module.exports = { ejecutarCiclo, ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante, _obtenerDetallesCiclos };

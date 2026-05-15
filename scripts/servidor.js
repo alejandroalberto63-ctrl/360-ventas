@@ -7,7 +7,7 @@
 
 require("dotenv").config();
 const express = require("express");
-const { ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante } = require("../agentes/ciclo_supervisor");
+const { ejecutarCicloConLock, getLeadsEnCurso, procesarMensajeEntrante, _obtenerDetallesCiclos } = require("../agentes/ciclo_supervisor");
 const { clasificarEtapaAutomatica } = require("../agentes/clasificador_etapa");
 const { generarReporteTexto } = require("./reportes/reporte_gerencial");
 const kommo = require("./kommo");
@@ -109,6 +109,14 @@ app.get("/debug/webhooks", (_, res) => {
     server_started_at: SERVER_STARTED_AT,
     total_recibidos: ULTIMOS_WEBHOOKS.length,
     ultimos: ULTIMOS_WEBHOOKS,
+  });
+});
+
+// ─── Endpoint diagnóstico: ver decisiones del último ciclo por lead ────────
+app.get("/debug/last-ciclo", (_, res) => {
+  res.json({
+    server_started_at: SERVER_STARTED_AT,
+    detalles: _obtenerDetallesCiclos(),
   });
 });
 
