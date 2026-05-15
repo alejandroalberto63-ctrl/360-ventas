@@ -180,27 +180,40 @@ async function obtenerLeadConTelefono(leadId) {
 /**
  * Busca lead en el pipeline 360 por número de teléfono
  */
-async function buscarLeadPorTelefono(telefono) {
+async function buscarLeadPorTelefono(telefono, { reintentos = 4, delayMs = 3000 } = {}) {
   const tel = telefono.replace(/\D/g, "");
 
-  const url = new URL(`${BASE}/contacts`);
-  url.searchParams.set("query", tel);
-  url.searchParams.set("with", "leads");
+  for (let intento = 1; intento <= reintentos; intento++) {
+    const url = new URL(`${BASE}/contacts`);
+    url.searchParams.set("query", tel);
+    url.searchParams.set("with", "leads");
 
-  const res = await fetch(url.toString(), { headers: headers() });
-  if (!res.ok) return null;
+    try {
+      const res = await fetch(url.toString(), { headers: headers() });
+      if (res.ok) {
+        const data = await res.json();
+        const contactos = data?._embedded?.contacts || [];
 
-  const data = await res.json();
-  const contactos = data?._embedded?.contacts || [];
+        for (const contacto of contactos) {
+          for (const leadRef of contacto._embedded?.leads || []) {
+            try {
+              const lead = await obtenerLead(leadRef.id);
+              if (lead.pipelineId === config.kommo.pipelineId) return lead;
+            } catch { continue; }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[Kommo] buscarLeadPorTelefono intento ${intento}/${reintentos} error: ${err.message}`);
+    }
 
-  for (const contacto of contactos) {
-    for (const leadRef of contacto._embedded?.leads || []) {
-      try {
-        const lead = await obtenerLead(leadRef.id);
-        if (lead.pipelineId === config.kommo.pipelineId) return lead;
-      } catch { continue; }
+    // Lead no encontrado aún — puede ser race condition con creación del lead
+    if (intento < reintentos) {
+      console.log(`[Kommo] Lead para ${tel} no encontrado (intento ${intento}/${reintentos}) — reintentando en ${delayMs / 1000}s`);
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   }
+
   return null;
 }
 
