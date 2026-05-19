@@ -513,6 +513,82 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       console.log(`[Override] 🔧 Lead ${lead.id} es PRIMER CONTACTO REAL — forzando TEMPLATE ${templateName} (supervisor decidió: "${accion.accion}")`);
     }
 
+    // ─── OVERRIDE DETERMINISTA — Detección Boda / Quinceaños → Paquete $320 ─────
+    // Cuando el cliente menciona "boda" o "quinceaños" en sus últimos mensajes,
+    // el supervisor LLM a veces falla en detectarlo (especialmente respuestas cortas
+    // como "Quinceaños"). Este override garantiza la activación del paquete completo.
+    //
+    // Aplica SI:
+    // - El cliente mencionó boda/quinceaños en los últimos 3 mensajes
+    // - precio_cotizado NO está fijado (el paquete aún no se ofreció)
+    // - El cliente NO rechazó el paquete previamente ("solo el 360", etc.)
+    // - El supervisor NO está cerrando el lead (fuera cobertura, comprar equipo)
+    {
+      const ultMsg = (lead.contexto?.ultimo_mensaje_cliente || lead.contexto?.conversacion?.ultimo_mensaje_cliente || "").toLowerCase();
+      const historialReciente = (lead.historial || [])
+        .filter((m) => m.role === "lead")
+        .slice(-3)
+        .map((m) => (m.content || "").toLowerCase())
+        .join(" ");
+      const logWaLower = (lead.log_wa || "").toLowerCase();
+      const textoBusqueda = `${ultMsg} ${historialReciente}`;
+
+      const detectaBoda = /\b(boda|casamiento|matrimonio|me caso)\b/.test(textoBusqueda);
+      const detectaQuince = /\b(quincea(?:ñ|n)os?|quincea(?:ñ|n)era|15 a(?:ñ|n)os|de los 15)\b/.test(textoBusqueda);
+
+      const precioYaCotizado = !!(lead.contexto?.comercial?.precio_cotizado);
+      const yaSeOfrecioPaquete = /paquete (boda|quincea(?:ñ|n)os) completo|paquete.*\$320|paquete.*\$300/i.test(logWaLower);
+      const clienteRechazoPaquete = /\b(solo|nada m[aá]s|únicamente)\s+(el\s+)?(360|video(?:booth)?|photo(?:booth)?|fotos?|niebla|pirotecnia)\b/.test(historialReciente);
+
+      const aplicaPaquete = (detectaBoda || detectaQuince)
+        && !precioYaCotizado
+        && !yaSeOfrecioPaquete
+        && !clienteRechazoPaquete
+        && !supervisorQuiereCerrar
+        && accion.agente_destino !== "humano"
+        && accion.accion !== "esperar";
+
+      if (aplicaPaquete) {
+        const esBoda = detectaBoda;
+        const tipoLabel = esBoda ? "boda" : "quinceaños";
+        const tipoTitulo = esBoda ? "Boda" : "Quinceaños";
+        const emoji = esBoda ? "💍" : "👑";
+        const felicitacion = esBoda ? "¡Felicidades por tu boda" : "¡Qué bueno, los 15 años";
+
+        // Detectar lugar de provincia mencionado (hasta 2h de Quito)
+        const provincias = ["latacunga","otavalo","ibarra","cayambe","cotacachi","tabacundo","machachi","salcedo","mindo","papallacta","baeza","los bancos","nanegalito","aloag"];
+        let lugarDetectado = null;
+        for (const p of provincias) {
+          if (textoBusqueda.includes(p)) {
+            lugarDetectado = p.split(" ").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+            break;
+          }
+        }
+        const lugarSaludo = lugarDetectado ? ` en ${lugarDetectado}` : "";
+        const lugarLinea = lugarDetectado ? `\n🚐 *Cobertura ${lugarDetectado} incluida*` : "";
+
+        // Detectar si ya hay fecha en el mensaje del cliente
+        const detectaFecha = /\b\d{1,2}\s*(de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b|\b\d{1,2}[\/\-]\d{1,2}[\/\-]?\d{0,4}\b/i.test(textoBusqueda);
+        const preguntaFinal = detectaFecha ? "*¿Lo aseguramos?*" : "*¿Para qué fecha es?*";
+
+        accion.instruccion_agente = `OVERRIDE DETERMINISTA — Cliente confirmó ${tipoLabel}${lugarDetectado ? ` en ${lugarDetectado}` : ""}. Genera EXACTAMENTE este mensaje (copia palabra por palabra, no improvises, no simplifiques, no preguntes por tipo de evento — el cliente ya lo dijo):
+
+${felicitacion}${lugarSaludo} ${emoji}! Te recomiendo el *Paquete ${tipoTitulo} Completo*:
+✅ *1h VideoBooth 360*
+✅ *1h PhotoBooth*
+✅ *Niebla baja + 2 pirotecnia frías*${lugarLinea}
+
+***Total: $320*** *(ahorras $40 vs separado)*
+
+${preguntaFinal}`;
+
+        // Etapa: si el supervisor mandaba a "esperar"/"escalar" no llegamos aquí.
+        // Si mandaba a contacto_inicial/seguimiento/negociacion, mantenemos esa etapa.
+        // El sistema avanza a seguimiento automáticamente al detectar que el cliente respondió.
+        console.log(`[Override] 🎯 Lead ${lead.id} — DETECTADO ${tipoLabel}${lugarDetectado ? " en " + lugarDetectado : ""}${detectaFecha ? " con fecha" : ""} → forzando PAQUETE $320 (supervisor había dicho: "${accion.accion}/${accion.agente_destino}")`);
+      }
+    }
+
     // PASO 5: Agente de Etapa genera mensaje → PASO 6: QA revisa
     let mensajeAprobado = null;
     let intentosQA = 0;
