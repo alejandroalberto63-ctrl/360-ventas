@@ -25,10 +25,20 @@ async function generarMensaje(etapa, contexto, instruccion, historial = []) {
   // Esto previene que la inconsistencia del LLM supervisor (que a veces
   // decide "seguimiento" cuando debería ser "primer contacto") rompa el
   // flujo: el agente siempre va a copiar el template cuando corresponde.
+  //
+  // EXCEPCIÓN: si la instrucción menciona cerrar lead (fuera cobertura,
+  // comprar equipo, etc.), NO forzar template — respetar al supervisor.
   const numSeg = contexto?.conversacion?.num_seguimientos_enviados ?? 0;
   const botEnvioAlgo = (historial || []).some((m) => m.role !== "lead");
+  const instrLower = (instruccion || "").toLowerCase();
+  const supervisorQuiereCerrar =
+    instrLower.includes("fuera de cobertura") ||
+    instrLower.includes("comprar el equipo") ||
+    instrLower.includes("no vendemos") ||
+    instrLower.includes("se cerrará tras este mensaje") ||
+    instrLower.includes("lead se cierra");
   const esPrimerContactoDeterminista =
-    etapa === "contacto_inicial" && numSeg === 0 && !botEnvioAlgo;
+    etapa === "contacto_inicial" && numSeg === 0 && !botEnvioAlgo && !supervisorQuiereCerrar;
 
   const esPrimerContacto =
     esPrimerContactoDeterminista ||

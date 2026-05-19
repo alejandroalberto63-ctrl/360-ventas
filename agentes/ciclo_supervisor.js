@@ -478,12 +478,24 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
     // es primer contacto sin importar qué dijo el supervisor. Forzar la
     // instrucción "primer contacto proactivo" para que tanto el agente como
     // el QA apliquen la lógica de template (sin límite de palabras).
+    //
+    // EXCEPCIÓN: si el supervisor decidió cerrar el lead (nueva_etapa=perdido)
+    // o la instrucción menciona "fuera de cobertura"/"perdido"/"comprar equipo",
+    // NO aplicar override — el supervisor tiene la razón correcta para no usar template.
     const numSegLead = lead.contexto?.conversacion?.num_seguimientos_enviados ?? 0;
-    const botEnvioAlgo = (lead.historial || []).some((m) => m.role !== "lead");
+    const botEnvioAlgo = (lead.historial || []).some((m) => m.role !== "lead") ||
+                         !!(lead.log_wa || "").includes("[BOT→");
+    const instruccionLower = (accion.instruccion_agente || "").toLowerCase();
+    const supervisorQuiereCerrar =
+      accion.nueva_etapa === "perdido" ||
+      instruccionLower.includes("fuera de cobertura") ||
+      instruccionLower.includes("comprar el equipo") ||
+      instruccionLower.includes("no vendemos");
     const esPrimerContactoReal =
       (accion.agente_destino === "contacto_inicial" || lead.etapa_actual === "contacto_inicial" || lead.etapa_actual === "nuevo")
       && numSegLead === 0
-      && !botEnvioAlgo;
+      && !botEnvioAlgo
+      && !supervisorQuiereCerrar;
 
     if (esPrimerContactoReal && !accion.instruccion_agente.toLowerCase().includes("primer contacto proactivo")) {
       const ultMsg = (lead.contexto?.ultimo_mensaje_cliente || lead.contexto?.conversacion?.ultimo_mensaje_cliente || "").toLowerCase();
