@@ -178,9 +178,17 @@ async function obtenerLeadConTelefono(leadId) {
 }
 
 /**
- * Busca lead en el pipeline 360 por número de teléfono
+ * Busca lead en el pipeline 360 por número de teléfono.
+ *
+ * Race condition fix (2026-05-19): cuando un cliente NUEVO escribe por primera
+ * vez, Evolution dispara webhook a Node.js Y a n8n simultáneamente. n8n crea
+ * el lead en Kommo pero tarda 5-20s. Si Node.js consulta antes que termine,
+ * no encuentra el lead y descarta el mensaje silenciosamente.
+ *
+ * Aumentado a 8 reintentos × 5s (default 40s total) para darle margen suficiente
+ * a n8n para crear el lead antes de rendirnos.
  */
-async function buscarLeadPorTelefono(telefono, { reintentos = 4, delayMs = 3000 } = {}) {
+async function buscarLeadPorTelefono(telefono, { reintentos = 8, delayMs = 5000 } = {}) {
   const tel = telefono.replace(/\D/g, "");
   const ETAPAS_CERRADAS = new Set(["ganado", "perdido"]);
 
