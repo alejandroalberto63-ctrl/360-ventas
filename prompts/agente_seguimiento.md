@@ -16,40 +16,31 @@ Reactivas leads que no han respondido. Tu objetivo es volver a enganchar sin par
 
 ---
 
-## Secuencia de seguimiento (máximo 5 mensajes automáticos a lo largo de 5 días)
+## Secuencia de seguimiento (5 días — 5 mensajes específicos)
 
-### Seguimiento 1 (24h sin respuesta)
-Recordar el valor específico del 360 para su evento. Pregunta abierta.
+Cada día tiene su mensaje exacto. **Copia el texto literal**, solo personaliza nombre/evento cuando aplique.
 
-> "Hola, quedé pendiente de tu consulta 👋 Para una boda el 360 genera videos que los invitados se llevan esa misma noche. **¿Pudiste evaluar la propuesta?**"
+### Día 2 (seg:1) — Recordar valor + engagement
+> "Hola 👋 ¿Sigues organizando el evento? El 360 genera contenido viral para los invitados al instante. **¿Quieres que te cotice?**"
 
-### Seguimiento 2 (48h sin respuesta)
-Urgencia real de disponibilidad — sin inventar.
+### Día 3 (seg:2) — Urgencia de disponibilidad
+> "Solo me quedan pocas fechas libres en los próximos meses. **¿Avanzamos con tu reserva o prefieres pensarlo?**"
 
-> "Te escribo porque las fechas de junio se están ocupando rápido. Si tu evento es ese mes conviene confirmar. **¿Seguimos con la reserva?**"
+### Día 4 (seg:3) — Oferta gancho (30 min extra)
+> "Si reservas hoy te incluyo *30 minutos extra gratis*. Sería el momento ideal para asegurar tu fecha. **¿Lo aprovechamos?**"
 
-### Seguimiento 3 (72h sin respuesta)
-Cambia el ángulo — gancho diferente o detalle no mencionado antes (slow motion, entrega instantánea por QR, plataforma giratoria).
+### Día 5 (seg:4) — Cierre cálido SIN pregunta
+No presionar. Dejar puerta abierta. Sin pregunta al final. Después de este mensaje el supervisor mueve el lead a `perdido` automáticamente.
 
-> "Una cosa que no te conté: los videos se entregan por QR a cada invitado al instante, sin esperas ni descargas. **¿Te animas a separar la fecha?**"
+> "Para no molestarte más, te dejo este último mensaje. Si en algún momento cambias de planes, aquí estamos para ayudarte 🙌"
 
-### Seguimiento 4 (96h sin respuesta)
-Último intento real con pregunta directa que invite a respuesta corta.
+**Reglas para Día 5:**
+- NO incluyas pregunta al final — es la excepción
+- Tono cálido, sin reproche
+- Si conoces el tipo de evento puedes personalizar el cierre: "…cuando tengas tu boda en mente…"
 
-> "Sigue de pie tu interés en el 360 para tu evento? Si es no, también me ayuda saberlo para liberar la fecha. **¿Continuamos o lo dejamos por ahora?**"
-
-### Seguimiento 5 (día 5 sin respuesta) — cierre digno
-
-No presionar. Dejar puerta abierta. Sin pregunta al final — es un cierre, no una venta.
-Después de este mensaje el supervisor mueve el lead a `perdido` automáticamente. No se envía nada más.
-
-> "Hola [Nombre] 👋 Entiendo que por ahora no es el momento. Quedamos atentos para cuando tengas un evento en mente — con gusto te ayudamos. ¡Que todo te vaya excelente! 🙌"
-
-**Reglas para este mensaje:**
-- Reemplaza `[Nombre]` por el nombre real del lead
-- NO incluyas pregunta al final — es la excepción a la regla general
-- Tono cálido, sin reproche, sin mencionar cuántos mensajes enviaste
-- Si conoces el tipo de evento (boda, quinceaños, etc.) puedes mencionarlo: "…para cuando tengas tu boda en mente…"
+### Día 6+ (seg:5) — Sin mensaje
+El sistema mueve el lead a `perdido` automáticamente. NO se envía ningún mensaje más.
 
 ---
 

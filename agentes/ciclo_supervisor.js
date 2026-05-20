@@ -433,45 +433,54 @@ async function ejecutarCiclo(triggerLeadId = null, { enviarResumen = false } = {
       tonoCli === "molesto" ||
       alertasCtx.some((a) => typeof a === "string" && a.includes("cliente_molesto"));
     if (esMolesto) {
-      console.warn(`[HARD-BLOCK] Lead ${lead.id} ⛔ tono_molesto detectado — no se envía nada`);
-      await evolution.alertarCoordinador(
-        `⛔ CLIENTE MOLESTO — BOT PAUSADO 72h\n\n` +
-          `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
-          `Último mensaje cliente: "${(lead.ultimo_mensaje_cliente || "").substring(0, 200)}"\n\n` +
-          `Atender personalmente. Bot bloqueado por tolerancia cero.`
-      );
+      console.warn(`[POLÍTICA] Lead ${lead.id} ⛔ tono_molesto detectado — cierre cordial + perdido + alertar Alberto`);
+      // Política nueva (2026-05-19): bot envía cierre cordial automático,
+      // lead se mueve a perdido, NO se escala a Erika. Solo se notifica a Alberto
+      // (dueño) para que esté al tanto, sin pedirle acción inmediata.
+      const cierreMolesto = "Te entendemos, gracias por avisarnos 🙏 No te molestamos más. Si en algún momento cambias de opinión, aquí estamos.";
+      try {
+        await evolution.enviarMensaje(lead.telefono, cierreMolesto);
+        await kommo.moverEtapa(lead.id, "perdido");
+        await kommo.appendLog(lead.id, `[BOT→cliente_molesto] ${cierreMolesto.substring(0, 120)}`);
+        await kommo.appendLog(lead.id, `[SISTEMA] etapa_anterior=${lead.etapa_actual} | nueva_etapa=perdido | motivo=cliente_molesto_cierre_automatico`);
+      } catch (errCierre) {
+        console.error(`[Cliente molesto] Error en cierre cordial:`, errCierre.message);
+      }
+      // Alerta a Alberto (dueño, no Erika) — solo informativa
+      const dueno = config.supervisor.waDueno;
+      if (dueno) {
+        await evolution.enviarSistema(
+          dueno,
+          `⛔ Cliente molesto — lead cerrado automático\n\n` +
+            `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
+            `Último mensaje: "${(lead.ultimo_mensaje_cliente || "").substring(0, 200)}"\n\n` +
+            `Bot envió cierre cordial. Lead movido a perdido. No requiere acción.`
+        ).catch((e) => console.warn(`[Alerta Alberto molesto] ${e.message}`));
+      }
       await kommo.agregarNota(
         lead.id,
-        `⛔ HARD-BLOCK: Cliente molesto — bot pausado 72h. Requiere atención humana.`
+        `⛔ Cliente molesto — bot envió cierre cordial automático + movido a perdido. Alberto notificado.`
       );
-      await kommo.appendLog(lead.id, `[SISTEMA-BLOQUEO] cliente_molesto:72h`);
-      resultadoAccion.escalado = true;
-      reporte.escalados_humano++;
-      reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_molesto" });
+      resultadoAccion.enviado = true;
+      reporte.mensajes_enviados++;
+      reporte.detalle_acciones.push({ ...resultadoAccion, razon: "cliente_molesto_cierre" });
       continue;
     }
 
-    // Hard 2: pregunta de identidad → escalar a humano siempre
+    // Hard 2: pregunta de identidad — bot ofrece opción al cliente (no escala directo)
+    // Política nueva (2026-05-19): el bot hace disclosure honesto + ofrece 2 opciones
+    // (seguir aquí o llamada del jefe). Si cliente elige llamada, AHÍ se escala.
+    // Aquí solo dejamos que el supervisor maneje la decisión; quitamos el bloqueo viejo
+    // que silenciaba completamente al cliente. El supervisor.md rule 15 contiene la
+    // instrucción exacta para el agente.
     const preguntaIdentidad = alertasCtx.some(
       (a) => typeof a === "string" && a.includes("pregunta_identidad")
     );
+    // (No HARD-BLOCK aquí — el flujo normal continúa y el supervisor instruye
+    // al agente a hacer disclosure + ofrecer opción. Si en la respuesta del cliente
+    // pide llamada, el siguiente ciclo lo detecta y escala a Erika.)
     if (preguntaIdentidad) {
-      console.warn(`[HARD-BLOCK] Lead ${lead.id} 👤 pregunta_identidad — escalando a humano`);
-      await evolution.alertarCoordinador(
-        `👤 CLIENTE PREGUNTÓ POR IDENTIDAD (¿bot/persona?)\n\n` +
-          `Lead: ${lead.nombre || lead.telefono} (${lead.telefono})\n` +
-          `Mensaje cliente: "${(lead.ultimo_mensaje_cliente || "").substring(0, 200)}"\n\n` +
-          `Política: humano debe responder personalmente para preservar credibilidad.`
-      );
-      await kommo.agregarNota(
-        lead.id,
-        `👤 HARD-BLOCK: Cliente preguntó si es bot/IA — escalado a humano (política).`
-      );
-      await kommo.appendLog(lead.id, `[SISTEMA-BLOQUEO] pregunta_identidad`);
-      resultadoAccion.escalado = true;
-      reporte.escalados_humano++;
-      reporte.detalle_acciones.push({ ...resultadoAccion, razon: "hard_block_identidad" });
-      continue;
+      console.log(`[Política] Lead ${lead.id} 👤 pregunta_identidad — bot ofrece disclosure + opción (no escala silencioso)`);
     }
 
     // OVERRIDE DETERMINISTA: si num_seguimientos = 0 y el bot nunca envió,
@@ -1147,7 +1156,11 @@ Responde SOLO este JSON:
           `Después del evento, mueve manualmente a "Ganado" en Kommo.`
       );
     } else {
-      // ⚠️ Monto no coincide (o sin referencia para comparar) — igual movemos a Reserva
+      // ⚠️ Monto no coincide (o ilegible) — política nueva (2026-05-19):
+      // 1. Lead a Reserva (ya hecho)
+      // 2. Pausar IA del lead (bot deja de responder)
+      // 3. Alertar a ALBERTO (dueño, no Erika) para revisión manual
+      // 4. NO enviar mensaje automático al cliente — Alberto contacta personalmente
       const motivoMismatch =
         anticipoEsperado == null
           ? `No hay precio cotizado registrado para comparar`
@@ -1155,23 +1168,46 @@ Responde SOLO este JSON:
           ? `Monto no legible en la imagen`
           : `Monto detectado $${monto} ≠ esperado $${anticipoEsperado} (diferencia $${Math.abs(monto - anticipoEsperado).toFixed(2)})`;
 
+      // Pausar IA del lead
+      try {
+        const BASE = "https://marketas.kommo.com/api/v4";
+        await fetch(`${BASE}/leads/${lead.id}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${config.kommo.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            custom_fields_values: [{ field_id: config.kommo.campos.pausar_ia, values: [{ value: true }] }],
+          }),
+        });
+      } catch (errPausa) {
+        console.warn(`[Comprobante mismatch] Error pausando IA:`, errPausa.message);
+      }
+
       await kommo.agregarNota(
         lead.id,
-        `⚠️ Pago recibido con monto a verificar — $${monto ?? "?"} (esperado $${anticipoEsperado ?? "?"}) — ${motivoMismatch}. Lead movido a Reserva, requiere revisión humana.`
+        `⚠️ Comprobante con discrepancia — $${monto ?? "?"} vs esperado $${anticipoEsperado ?? "?"}. ${motivoMismatch}. Lead a Reserva + IA pausada + Alberto notificado.`
       );
       await kommo.appendLog(
         lead.id,
-        `[COMPROBANTE ?] $${monto ?? "?"} vs esperado $${anticipoEsperado ?? "?"} | Auto-Reserva con alerta | ${resultado.observaciones}`
+        `[COMPROBANTE ?] $${monto ?? "?"} vs $${anticipoEsperado ?? "?"} | Auto-Reserva + pausar_ia | ${resultado.observaciones}`
       );
-      await evolution.alertarCoordinador(
-        `⚠️ PAGO RECIBIDO — MONTO A VERIFICAR (lead movido a Reserva)\n\n` +
-          `Lead: ${nombreLead} (${lead.telefono})\n` +
-          detalleComprobante +
-          `\n\n` +
-          `Anticipo esperado: $${anticipoEsperado ?? "?"} (25% de $${precioCotizado ?? "?"})\n` +
-          `Motivo de alerta: ${motivoMismatch}\n\n` +
-          `Lead movido a Reserva automáticamente. Verificar el monto y, si es correcto, dejarlo. Si hay diferencia importante, contactar al cliente.`
-      );
+
+      // Alerta a Alberto (dueño), no a Erika
+      const dueno = config.supervisor.waDueno;
+      if (dueno) {
+        await evolution.enviarSistema(
+          dueno,
+          `⚠️ Comprobante con discrepancia — revisión manual\n\n` +
+            `Lead: ${nombreLead} (${lead.telefono})\n` +
+            detalleComprobante +
+            `\n\n` +
+            `Anticipo esperado: $${anticipoEsperado ?? "?"} (25% de $${precioCotizado ?? "?"})\n` +
+            `Problema: ${motivoMismatch}\n\n` +
+            `Lead movido a Reserva, IA pausada. Contactar al cliente personalmente para aclarar.`
+        ).catch((e) => console.warn(`[Alerta Alberto comprobante] ${e.message}`));
+      }
     }
   } catch (err) {
     console.error("[Comprobante] Error moviendo lead a Reserva:", err.message);
