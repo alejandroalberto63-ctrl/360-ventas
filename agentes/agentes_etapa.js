@@ -37,8 +37,12 @@ async function generarMensaje(etapa, contexto, instruccion, historial = []) {
     instrLower.includes("no vendemos") ||
     instrLower.includes("se cerrará tras este mensaje") ||
     instrLower.includes("lead se cierra");
+  // EXCEPCIÓN: si la instrucción ya viene de un override determinista del
+  // ciclo_supervisor (ej: paquete boda/quinceaños detectado), NO aplicar
+  // primer contacto override aquí — la instrucción del supervisor manda.
+  const yaHayOverride = instrLower.includes("override determinista");
   const esPrimerContactoDeterminista =
-    etapa === "contacto_inicial" && numSeg === 0 && !botEnvioAlgo && !supervisorQuiereCerrar;
+    etapa === "contacto_inicial" && numSeg === 0 && !botEnvioAlgo && !supervisorQuiereCerrar && !yaHayOverride;
 
   const esPrimerContacto =
     esPrimerContactoDeterminista ||
